@@ -1,5 +1,5 @@
 /** Main worker class - polls and processes ETL jobs */
-import { Pool } from 'pg';
+import { Pool, PoolConfig } from 'pg';
 import { RunStatus, JobType, Platform, ErrorPayload } from '@dashboard/config';
 import { logger } from './utils/logger.js';
 import { ShopifyETL } from './etl/shopify.js';
@@ -25,17 +25,27 @@ async function makeIPv4Pool(connStr: string): Promise<Pool> {
   try {
     const { address } = await dns.promises.lookup(originalHost, { family: 4 });
     resolvedIPv4 = address;
-    log.info(`Resolved ${originalHost} to IPv4: ${resolvedIPv4}`);
-  } catch (error) {
-    log.warn(`IPv4 DNS lookup failed for ${originalHost}, falling back to default ordering`, error);
+    log.info(`Resolved ${originalHost} to IPv4 via lookup: ${resolvedIPv4}`);
+  } catch (lookupError) {
+    log.warn(`IPv4 DNS lookup failed for ${originalHost}, trying resolve4 fallback`, lookupError);
 
-    if (typeof dns.setDefaultResultOrder === 'function') {
-      try {
-        dns.setDefaultResultOrder('ipv4first');
-        log.info('Set DNS default result order to ipv4first');
-      } catch (setOrderError) {
-        log.warn('Unable to set DNS default result order to ipv4first', setOrderError);
+    try {
+      const addresses = await dns.promises.resolve4(originalHost);
+      if (addresses.length > 0) {
+        resolvedIPv4 = addresses[0];
+        log.info(`Resolved ${originalHost} to IPv4 via resolve4: ${resolvedIPv4}`);
       }
+    } catch (resolveError) {
+      log.warn(`IPv4 resolve4 failed for ${originalHost}`, resolveError);
+    }
+  }
+
+  if (!resolvedIPv4 && typeof dns.setDefaultResultOrder === 'function') {
+    try {
+      dns.setDefaultResultOrder('ipv4first');
+      log.info('Set DNS default result order to ipv4first');
+    } catch (setOrderError) {
+      log.warn('Unable to set DNS default result order to ipv4first', setOrderError);
     }
   }
 
@@ -44,20 +54,24 @@ async function makeIPv4Pool(connStr: string): Promise<Pool> {
     servername: originalHost,
   } as const;
 
-  if (resolvedIPv4) {
-    url.hostname = resolvedIPv4;
-    return new Pool({
-      connectionString: url.toString(),
-      ssl,
-      max: 1,
-    });
-  }
-
-  return new Pool({
+  const poolConfig: PoolConfig = {
     connectionString: connStr,
     ssl,
     max: 1,
-  });
+    connectionTimeoutMillis: 5000,
+  };
+
+  if (resolvedIPv4) {
+    poolConfig.host = resolvedIPv4;
+    process.env.PGHOSTADDR = resolvedIPv4;
+    url.hostname = resolvedIPv4;
+    poolConfig.connectionString = url.toString();
+  } else {
+    process.env.PGHOSTADDR = '0.0.0.0';
+    poolConfig.host = originalHost;
+  }
+
+  return new Pool(poolConfig);
 }
 
 export class Worker {
