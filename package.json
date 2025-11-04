@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "dev": "node --loader tsx src/main.ts",
-    "build": "tsc",
+    "build": "pnpm --filter @dashboard/config build && pnpm --filter @dashboard/worker build",
+    "start": "cd apps/worker && pnpm start",
     "test": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
