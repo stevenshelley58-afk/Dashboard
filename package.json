@@ -4,6 +4,7 @@
   "description": "Data pipeline system with agent orchestration",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@10.18.1",
   "workspaces": [
     "apps/*"
   ],
