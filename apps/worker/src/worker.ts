@@ -6,13 +6,42 @@ import { ShopifyETL } from './etl/shopify.js';
 import { MetaETL } from './etl/meta.js';
 import { GA4ETL } from './etl/ga4.js';
 import { KlaviyoETL } from './etl/klaviyo.js';
+import * as dns from 'node:dns';
 
 const log = logger('worker');
 
 import type { ETLRunRecord } from './types/etl.js';
 
+/**
+ * Create a PostgreSQL pool with IPv4 resolution to avoid IPv6 connectivity issues.
+ * Resolves hostname to IPv4 address and preserves original hostname in TLS SNI.
+ */
+async function makeIPv4Pool(connStr: string): Promise<Pool> {
+  const u = new URL(connStr);
+  const host = u.hostname;
+  
+  // Force IPv4 resolution
+  const { address } = await dns.promises.lookup(host, { family: 4 });
+  log.info(`Resolved ${host} to IPv4: ${address}`);
+  
+  // Swap hostname for resolved IPv4, keep SSL and params intact
+  u.hostname = address;
+  
+  // Important: preserve original host in SNI for TLS
+  const ssl = { 
+    rejectUnauthorized: false, 
+    servername: host // Original hostname for TLS SNI
+  };
+  
+  return new Pool({ 
+    connectionString: u.toString(), 
+    ssl,
+    max: 1, // Single connection for worker
+  });
+}
+
 export class Worker {
-  private pool: Pool;
+  private pool: Pool | null = null;
   private running: boolean = false;
   private pollInterval: number = 5000; // 5 seconds
 
@@ -22,16 +51,43 @@ export class Worker {
       throw new Error('SUPABASE_DB_URL environment variable is required');
     }
 
-    this.pool = new Pool({
-      connectionString: dbUrl,
-      ssl: { rejectUnauthorized: false },
-      max: 1, // Single connection for worker
-    });
-
     log.info('Worker initialized');
   }
 
+  /**
+   * Initialize database connection with IPv4 resolution
+   */
+  async initializeConnection(): Promise<void> {
+    const dbUrl = process.env.SUPABASE_DB_URL;
+    if (!dbUrl) {
+      throw new Error('SUPABASE_DB_URL environment variable is required');
+    }
+
+    try {
+      // Close existing pool if it exists
+      if (this.pool) {
+        await this.pool.end().catch(() => {});
+      }
+
+      // Create pool with IPv4 resolution
+      this.pool = await makeIPv4Pool(dbUrl);
+      
+      // Test the connection
+      const client = await this.pool.connect();
+      await client.query('SELECT 1');
+      client.release();
+      
+      log.info('Database connection established successfully');
+    } catch (error) {
+      log.error('Failed to initialize database connection:', error);
+      throw error;
+    }
+  }
+
   async start(): Promise<void> {
+    // Initialize connection with IPv4 resolution
+    await this.initializeConnection();
+    
     this.running = true;
     log.info('Worker started, polling for jobs...');
 
@@ -47,6 +103,9 @@ export class Worker {
   }
 
   private async processNextJob(): Promise<void> {
+    if (!this.pool) {
+      throw new Error('Database pool not initialized');
+    }
     const client = await this.pool.connect();
 
     try {
@@ -143,6 +202,9 @@ export class Worker {
   }
 
   private getETLProcessor(platform: Platform): ShopifyETL | MetaETL | GA4ETL | KlaviyoETL {
+    if (!this.pool) {
+      throw new Error('Database pool not initialized');
+    }
     switch (platform) {
       case Platform.SHOPIFY:
         return new ShopifyETL(this.pool);
@@ -187,7 +249,9 @@ export class Worker {
 
   async stop(): Promise<void> {
     this.running = false;
-    await this.pool.end();
+    if (this.pool) {
+      await this.pool.end();
+    }
     log.info('Worker stopped');
   }
 }
