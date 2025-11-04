@@ -1,0 +1,30 @@
+{
+  "name": "@dashboard/worker",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test-connections": "tsx src/scripts/test-connections.ts",
+    "validate-env": "tsx src/scripts/validate-env.ts",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@dashboard/config": "workspace:*",
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.4.0",
+    "google-auth-library": "^9.4.0",
+    "pg": "^8.11.3",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/pg": "^8.10.9",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}
+
