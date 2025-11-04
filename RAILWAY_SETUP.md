@@ -6,9 +6,15 @@ Set these in Railway Dashboard → Service → Variables:
 
 ```
 NODE_ENV=production
-SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require&application_name=worker-listener&keepalives=1
+SUPABASE_DB_URL=postgresql://postgres:YOUR_PASSWORD@db.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require&application_name=worker-listener&keepalives=1
 PACKAGE_MANAGER=pnpm
 ```
+
+**Important:** 
+- Replace `YOUR_PASSWORD` with your actual Supabase database password
+- URL-encode special characters in password (e.g., `!` → `%21`)
+- Use `db.` prefix (direct connection), NOT `postgres.` (pooler)
+- See `SUPABASE_CONNECTION.md` for detailed instructions
 
 ## Railway Service Settings
 
