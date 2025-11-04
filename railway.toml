@@ -1,7 +1,7 @@
 [build]
 builder = "railpack"
-buildCommand = "pnpm -F @dashboard/worker build"
-watchPatterns = ["/apps/worker/**"]
+buildCommand = "pnpm -F @dashboard/config build && pnpm -F @dashboard/worker build"
+watchPatterns = ["/apps/worker/**", "/packages/config/**"]
 
 [deploy]
 startCommand = "pnpm -F @dashboard/worker start"
