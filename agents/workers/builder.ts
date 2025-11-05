@@ -1,6 +1,5 @@
 /** Builder agent for creating/implementing features */
 import { BaseAgent, AgentState } from '../base_agent.js';
-import { execSync } from 'child_process';
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 
@@ -28,7 +27,6 @@ export class BuilderAgent extends BaseAgent {
 
   async act(state: AgentState): Promise<AgentState> {
     const context = state.context as Record<string, unknown>;
-    const plan = context.plan as string[];
 
     this.log.info('Executing build actions...');
 

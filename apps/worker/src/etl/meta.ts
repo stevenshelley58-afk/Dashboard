@@ -3,7 +3,6 @@ import { Pool } from 'pg';
 import type { PoolClient as Client } from 'pg';
 import { logger } from '../utils/logger.js';
 import { MetaClient, MetaInsightsData } from '../clients/meta-client.js';
-import { JobType } from '@dashboard/config';
 
 const log = logger('meta-etl');
 
@@ -15,7 +14,7 @@ export class MetaETL {
   /**
    * Initialize Meta client from environment variables
    */
-  private getClient(shopId: string): MetaClient {
+  private getClient(): MetaClient {
     if (this.client) {
       return this.client;
     }
@@ -42,7 +41,7 @@ export class MetaETL {
     log.info(`Running historical Meta sync for shop ${shopId}`);
 
     try {
-      const client = this.getClient(shopId);
+      const client = this.getClient();
 
       // Get shop's timezone and currency from core_warehouse.shops
       const shopResult = await dbClient.query(
@@ -93,7 +92,7 @@ export class MetaETL {
     log.info(`Running incremental Meta sync for shop ${shopId}`);
 
     try {
-      const client = this.getClient(shopId);
+      const client = this.getClient();
 
       // Get last cursor from sync_cursors
       const cursorResult = await dbClient.query(

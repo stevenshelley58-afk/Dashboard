@@ -1,6 +1,3 @@
-/** Validation utilities for worker */
-import { z } from 'zod';
-
 /**
  * Validate shop_id format
  */

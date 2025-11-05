@@ -45,7 +45,7 @@ export class StateManager {
     return JSON.parse(content) as CheckpointData;
   }
 
-  listCheckpoints(agentName?: string): string[] {
+  listCheckpoints(_agentName?: string): string[] {
     // This would need to be implemented with directory reading
     // For now, return empty array
     return [];

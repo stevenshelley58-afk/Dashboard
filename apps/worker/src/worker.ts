@@ -1,5 +1,6 @@
 /** Main worker class - polls and processes ETL jobs */
 import { Pool, PoolConfig } from 'pg';
+import type { PoolClient } from 'pg';
 import { RunStatus, JobType, Platform, ErrorPayload } from '@dashboard/config';
 import { logger } from './utils/logger.js';
 import { ShopifyETL } from './etl/shopify.js';
@@ -251,7 +252,7 @@ export class Worker {
     }
   }
 
-  private async executeJob(job: ETLRunRecord, client: any): Promise<void> {
+  private async executeJob(job: ETLRunRecord, client: PoolClient): Promise<void> {
     let recordsSynced = 0;
     let error: ErrorPayload | null = null;
 
@@ -330,7 +331,7 @@ export class Worker {
     }
   }
 
-  private async updateCursor(shopId: string, platform: Platform, client: any): Promise<void> {
+  private async updateCursor(shopId: string, platform: Platform, client: PoolClient): Promise<void> {
     // Update sync cursor with current timestamp
     await client.query(
       `INSERT INTO core_warehouse.sync_cursors (shop_id, platform, cursor_value, last_success_at, updated_at)

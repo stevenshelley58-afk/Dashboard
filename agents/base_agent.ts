@@ -1,5 +1,4 @@
 /** Base agent class with common functionality */
-import { z } from 'zod';
 import { StateManager } from '../memory/state_manager.js';
 import { ToolVerifier } from '../utils/tool_verifier.js';
 import { logger } from '../utils/logger.js';

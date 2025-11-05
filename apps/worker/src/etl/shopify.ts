@@ -2,6 +2,13 @@
 import { Pool, PoolClient } from 'pg';
 import { logger } from '../utils/logger.js';
 import { ShopifyClient } from '../clients/shopify-client.js';
+import type {
+  ShopifyBulkRecord,
+  ShopifyLineItemNode,
+  ShopifyTransactionNode,
+} from '../clients/shopify-client.js';
+type ShopifyShopDetails = Awaited<ReturnType<ShopifyClient['getShop']>>;
+
 import { loadToStaging, getIncrementalDateRange } from '../utils/etl-helpers.js';
 import { getEnvConfig } from '../config/env.js';
 
@@ -94,9 +101,9 @@ export class ShopifyETL {
       }
 
       // Process orders and extract related data
-      const allRecords: any[] = [];
-      const lineItems: any[] = [];
-      const transactions: any[] = [];
+      const allRecords: ShopifyBulkRecord[] = [];
+      const lineItems: Array<Record<string, unknown>> = [];
+      const transactions: Array<Record<string, unknown>> = [];
 
       for (const order of orders) {
         // Store order
@@ -106,7 +113,7 @@ export class ShopifyETL {
         if (order.lineItems?.edges) {
           for (const edge of order.lineItems.edges) {
             lineItems.push({
-              ...edge.node,
+              ...(edge.node as ShopifyLineItemNode),
               order_id: order.id,
             });
           }
@@ -116,7 +123,7 @@ export class ShopifyETL {
         if (order.transactions?.edges) {
           for (const edge of order.transactions.edges) {
             transactions.push({
-              ...edge.node,
+              ...(edge.node as ShopifyTransactionNode),
               order_id: order.id,
             });
           }
@@ -178,15 +185,15 @@ export class ShopifyETL {
       log.info(`Fetched ${orders.length} orders from Shopify`);
 
       // Process orders and extract related data
-      const lineItems: any[] = [];
-      const transactions: any[] = [];
+      const lineItems: Array<Record<string, unknown>> = [];
+      const transactions: Array<Record<string, unknown>> = [];
 
       for (const order of orders) {
         // Extract line items
         if (order.lineItems?.edges) {
           for (const edge of order.lineItems.edges) {
             lineItems.push({
-              ...edge.node,
+              ...(edge.node as ShopifyLineItemNode),
               order_id: order.id,
             });
           }
@@ -196,7 +203,7 @@ export class ShopifyETL {
         if (order.transactions?.edges) {
           for (const edge of order.transactions.edges) {
             transactions.push({
-              ...edge.node,
+              ...(edge.node as ShopifyTransactionNode),
               order_id: order.id,
             });
           }
@@ -231,7 +238,11 @@ export class ShopifyETL {
   /**
    * Ensure shop record exists in core_warehouse.shops
    */
-  private async ensureShopExists(shopId: string, shopInfo: any, dbClient: PoolClient): Promise<void> {
+  private async ensureShopExists(
+    shopId: string,
+    shopInfo: ShopifyShopDetails,
+    dbClient: PoolClient
+  ): Promise<void> {
     await dbClient.query(
       `INSERT INTO core_warehouse.shops (shop_id, shop_domain, shop_name, currency, timezone, updated_at)
        VALUES ($1, $2, $3, $4, $5, now())

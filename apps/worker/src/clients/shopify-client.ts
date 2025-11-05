@@ -10,6 +10,83 @@ export interface ShopifyClientOptions {
   apiVersion?: string;
 }
 
+export interface ShopifyMoneyAmount {
+  amount: string;
+  currencyCode: string;
+}
+
+export interface ShopifyMoneySet {
+  shopMoney: ShopifyMoneyAmount;
+}
+
+export type ShopifyBulkRecord = Record<string, unknown>;
+
+export interface ShopifyLineItemNode {
+  id: string;
+  title: string;
+  quantity: number;
+  originalUnitPriceSet: ShopifyMoneySet;
+  discountedTotalSet: ShopifyMoneySet;
+}
+
+export interface ShopifyTransactionNode {
+  id: string;
+  kind: string;
+  status: string;
+  processedAt: string;
+  amountSet: ShopifyMoneySet;
+}
+
+export interface ShopifyOrderNode extends Record<string, unknown> {
+  id: string;
+  name?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  processedAt?: string | null;
+  totalPriceSet?: ShopifyMoneySet;
+  subtotalPriceSet?: ShopifyMoneySet;
+  totalTaxSet?: ShopifyMoneySet;
+  financialStatus?: string | null;
+  fulfillmentStatus?: string | null;
+  lineItems?: {
+    edges?: Array<{ node: ShopifyLineItemNode }>;
+  };
+  transactions?: {
+    edges?: Array<{ node: ShopifyTransactionNode }>;
+  };
+}
+
+export interface ShopifyPayout extends Record<string, unknown> {
+  id: string;
+  amount: string;
+  currency: string;
+  status: string;
+  arrival_date?: string;
+  payout_date?: string;
+}
+
+interface ShopifyShopResponse {
+  shop: {
+    id: string;
+    name: string;
+    myshopifyDomain: string;
+    currencyCode: string;
+    timezoneAbbreviation: string;
+    ianaTimezone: string;
+  };
+}
+
+interface ShopifyOrdersResponse {
+  orders: {
+    edges: Array<{ node: ShopifyOrderNode; cursor: string }>;
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  };
+}
+
+interface ShopifyPayoutsResponse {
+  payouts?: ShopifyPayout[];
+}
+
 export interface BulkOperation {
   id: string;
   status: 'CREATED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
@@ -59,7 +136,10 @@ export class ShopifyClient {
   /**
    * Execute a GraphQL query
    */
-  async query<T = any>(query: string, variables?: Record<string, any>): Promise<T> {
+  async query<T = unknown>(
+    query: string,
+    variables?: Record<string, unknown>
+  ): Promise<T> {
     try {
       const response = await this.http.post<{ data: T; errors?: Array<{ message: string }> }>('', {
         query,
@@ -109,7 +189,7 @@ export class ShopifyClient {
       }
     `;
 
-    const result = await this.query<{ shop: any }>(query);
+    const result = await this.query<ShopifyShopResponse>(query);
     return {
       id: result.shop.id,
       name: result.shop.name,
@@ -278,7 +358,7 @@ export class ShopifyClient {
   /**
    * Download and parse JSONL file from bulk operation URL
    */
-  async downloadBulkOperationData(url: string): Promise<any[]> {
+  async downloadBulkOperationData(url: string): Promise<ShopifyBulkRecord[]> {
     log.info(`Downloading bulk operation data from ${url}`);
     
     const response = await fetch(url);
@@ -289,13 +369,16 @@ export class ShopifyClient {
     const text = await response.text();
     const lines = text.trim().split('\n').filter((line) => line.trim());
     
-    return lines.map((line) => JSON.parse(line));
+    return lines.map((line) => JSON.parse(line) as ShopifyBulkRecord);
   }
 
   /**
    * Get orders incrementally (since a date)
    */
-  async getOrdersIncremental(sinceDate: string, limit: number = 250): Promise<any[]> {
+  async getOrdersIncremental(
+    sinceDate: string,
+    limit: number = 250
+  ): Promise<ShopifyOrderNode[]> {
     const query = `
       query getOrders($query: String!, $first: Int!, $after: String) {
         orders(first: $first, after: $after, query: $query) {
@@ -379,17 +462,15 @@ export class ShopifyClient {
       first: limit,
     };
 
-    const allOrders: any[] = [];
+    const allOrders: ShopifyOrderNode[] = [];
     let hasNextPage = true;
     let cursor: string | undefined;
 
     while (hasNextPage) {
-      const result = await this.query<{
-        orders: {
-          edges: Array<{ node: any; cursor: string }>;
-          pageInfo: { hasNextPage: boolean; endCursor: string | null };
-        };
-      }>(query, { ...variables, after: cursor });
+      const result = await this.query<ShopifyOrdersResponse>(query, {
+        ...variables,
+        after: cursor,
+      });
 
       const orders = result.orders.edges.map((edge) => edge.node);
       allOrders.push(...orders);
@@ -404,7 +485,7 @@ export class ShopifyClient {
   /**
    * Get shop payouts (for cash-to-bank view)
    */
-  async getPayouts(limit: number = 250): Promise<any[]> {
+  async getPayouts(limit: number = 250): Promise<ShopifyPayout[]> {
     // Note: Payouts API is REST, not GraphQL
     const url = `https://${this.shopDomain}/admin/api/${this.apiVersion}/shopify_payments/payouts.json?limit=${limit}`;
     
@@ -421,7 +502,7 @@ export class ShopifyClient {
       throw new Error(`Failed to fetch payouts: ${response.statusText}`);
     }
 
-    const data = await response.json() as { payouts?: any[] };
+    const data = (await response.json()) as ShopifyPayoutsResponse;
     return data.payouts || [];
   }
 }

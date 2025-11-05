@@ -1,5 +1,4 @@
 /** Utilities for shop configuration and timezone/currency handling */
-import { Pool } from 'pg';
 import type { PoolClient } from 'pg';
 import { logger } from './logger.js';
 
@@ -45,10 +44,20 @@ export async function getShopConfig(
  * Normalize date to shop's timezone
  */
 export function normalizeDate(date: Date | string, timezone: string): string {
-  // For now, return ISO date string
-  // In production, you might want to use a library like date-fns-tz
-  const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toISOString().split('T')[0];
+  const inputDate = typeof date === 'string' ? new Date(date) : date;
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    return formatter.format(inputDate);
+  } catch (error) {
+    log.warn(`Failed to normalize date for timezone ${timezone}:`, error);
+    return inputDate.toISOString().split('T')[0];
+  }
 }
 
 /**

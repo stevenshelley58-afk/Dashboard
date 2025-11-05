@@ -158,9 +158,16 @@ export class KlaviyoClient extends ApiClient {
    * Build metric aggregates API URL
    */
   private buildAggregateUrl(metricId: string, startDate: string, endDate: string): string {
+    const filterSegments = [
+      `equals(metric_id,"${metricId}")`,
+      `greater-or-equal(date,"${startDate}")`,
+      `less-or-equal(date,"${endDate}")`,
+    ];
+
     const params = new URLSearchParams({
-      filter: `equals(metric_id,"${metricId}")`,
+      filter: `and(${filterSegments.join(',')})`,
       'page[size]': '100',
+      sort: 'date',
     });
 
     return `/metric-aggregates/?${params.toString()}`;

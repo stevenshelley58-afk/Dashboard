@@ -3,7 +3,6 @@ import { Pool } from 'pg';
 import type { PoolClient as Client } from 'pg';
 import { logger } from '../utils/logger.js';
 import { GA4Client, GA4ReportData } from '../clients/ga4-client.js';
-import { JobType } from '@dashboard/config';
 
 const log = logger('ga4-etl');
 

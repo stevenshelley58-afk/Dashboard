@@ -1,4 +1,5 @@
 /** Type definitions for ETL operations */
+import type { PoolClient } from 'pg';
 import { RunStatus, JobType, Platform, ErrorPayload } from '@dashboard/config';
 
 export interface ETLRunRecord {
@@ -33,7 +34,7 @@ export interface ShopConfig {
 }
 
 export interface ETLProcessor {
-  runHistorical(shopId: string, client: any): Promise<number>;
-  runIncremental(shopId: string, client: any): Promise<number>;
+  runHistorical(shopId: string, client: PoolClient): Promise<number>;
+  runIncremental(shopId: string, client: PoolClient): Promise<number>;
 }
 

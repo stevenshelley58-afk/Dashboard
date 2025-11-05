@@ -67,9 +67,7 @@ export abstract class ApiClient {
     let cursor: string | undefined;
     let page = 0;
 
-    while (true) {
-      if (maxPages && page >= maxPages) break;
-
+    while (!maxPages || page < maxPages) {
       const result = await fetchFn(cursor);
       allData.push(...result.data);
 

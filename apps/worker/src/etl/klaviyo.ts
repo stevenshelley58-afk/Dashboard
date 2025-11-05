@@ -3,7 +3,6 @@ import { Pool } from 'pg';
 import type { PoolClient as Client } from 'pg';
 import { logger } from '../utils/logger.js';
 import { KlaviyoClient, KlaviyoMetricsData } from '../clients/klaviyo-client.js';
-import { JobType } from '@dashboard/config';
 
 const log = logger('klaviyo-etl');
 
