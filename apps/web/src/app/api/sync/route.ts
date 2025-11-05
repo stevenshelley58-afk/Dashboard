@@ -5,13 +5,37 @@ import { Platform, JobType } from '@/lib/config';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { shop_id, platform, job_type } = body;
-
-    // Validate request
-    if (!shop_id || !platform || !job_type) {
+    let body;
+    try {
+      body = await request.json();
+    } catch (parseError) {
+      console.error('Failed to parse request body:', parseError);
       return NextResponse.json(
-        { error: 'Missing required fields: shop_id, platform, job_type' },
+        { error: 'Invalid JSON in request body' },
+        { status: 400 }
+      );
+    }
+
+    console.log('Received sync request:', { body, keys: Object.keys(body || {}) });
+
+    const { shop_id, platform, job_type } = body || {};
+
+    // Validate request - check for empty strings too
+    const missingFields: string[] = [];
+    if (!shop_id || (typeof shop_id === 'string' && !shop_id.trim())) {
+      missingFields.push('shop_id');
+    }
+    if (!platform || (typeof platform === 'string' && !platform.trim())) {
+      missingFields.push('platform');
+    }
+    if (!job_type || (typeof job_type === 'string' && !job_type.trim())) {
+      missingFields.push('job_type');
+    }
+
+    if (missingFields.length > 0) {
+      console.error('Missing fields:', missingFields, 'Body received:', body);
+      return NextResponse.json(
+        { error: `Missing required fields: ${missingFields.join(', ')}` },
         { status: 400 }
       );
     }

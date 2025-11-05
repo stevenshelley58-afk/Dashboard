@@ -28,19 +28,30 @@ export function SyncTrigger() {
     setResult(null);
 
     try {
+      const requestBody = {
+        shop_id: shopId.trim(),
+        platform,
+        job_type: jobType,
+      };
+
+      console.log('Sending sync request:', requestBody);
+
       const response = await fetch('/api/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          shop_id: shopId.trim(),
-          platform,
-          job_type: jobType,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        const text = await response.text();
+        console.error('Failed to parse response:', text);
+        throw new Error(`Server error: ${response.status} ${response.statusText}`);
+      }
 
       if (response.ok) {
         setResult({
