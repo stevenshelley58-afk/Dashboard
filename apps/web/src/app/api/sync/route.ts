@@ -16,9 +16,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('Received sync request:', { body, keys: Object.keys(body || {}) });
+    console.log('Received sync request:', { 
+      body, 
+      bodyType: typeof body,
+      keys: Object.keys(body || {}),
+      rawBody: JSON.stringify(body)
+    });
 
     const { shop_id, platform, job_type } = body || {};
+    
+    console.log('Extracted values:', { shop_id, platform, job_type, shop_idType: typeof shop_id, platformType: typeof platform, job_typeType: typeof job_type });
 
     // Validate request - check for empty strings too
     const missingFields: string[] = [];

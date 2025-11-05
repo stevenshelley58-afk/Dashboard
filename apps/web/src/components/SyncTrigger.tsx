@@ -15,11 +15,21 @@ export function SyncTrigger() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    const trimmedShopId = shopId.trim();
+    
     // Validate form before submitting
-    if (!shopId || !shopId.trim()) {
+    if (!trimmedShopId) {
       setResult({
         success: false,
-        message: 'Please select a shop',
+        message: 'Please enter or select a shop ID',
+      });
+      return;
+    }
+
+    if (!platform || !jobType) {
+      setResult({
+        success: false,
+        message: 'Please select both platform and job type',
       });
       return;
     }
@@ -28,13 +38,21 @@ export function SyncTrigger() {
     setResult(null);
 
     try {
+      // Convert enum values to strings explicitly
       const requestBody = {
-        shop_id: shopId.trim(),
-        platform,
-        job_type: jobType,
+        shop_id: trimmedShopId,
+        platform: String(platform),
+        job_type: String(jobType),
       };
 
-      console.log('Sending sync request:', requestBody);
+      console.log('Sending sync request:', {
+        requestBody,
+        shopId: trimmedShopId,
+        platform: String(platform),
+        jobType: String(jobType),
+        platformEnum: platform,
+        jobTypeEnum: jobType,
+      });
 
       const response = await fetch('/api/sync', {
         method: 'POST',
