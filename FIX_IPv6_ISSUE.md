@@ -24,38 +24,5 @@
 
 ## Legacy IPv4 Flow (Reference Only)
 
-If you need the direct IPv4 connection steps (e.g., for troubleshooting), the previous process is documented below.
-
-### ✅ IPv4 Add-On Enabled
-
-The Supabase IPv4 add-on allows direct database connections from Railway containers.
-
-### Step 1: Get Your IPv4 Connection String
-
-1. Supabase Dashboard → **Settings** → **Database**
-2. Under **Connection string**, choose **Direct connection**
-3. Copy the IPv4 PostgreSQL URI, e.g.:
-   ```
-   postgresql://postgres:[YOUR-PASSWORD]@[IPv4-ADDRESS]:5432/postgres
-   ```
-
-### Step 2: Update Railway Environment Variable
-
-1. Railway → Worker service → **Variables**
-2. Set `SUPABASE_DB_URL` to the IPv4 URI
-3. Ensure the password is URL-encoded and add `?sslmode=require`
-
-**Example:**
-```
-SUPABASE_DB_URL=postgresql://postgres:J7Tg4LkQiTbz%21cS@db.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require&application_name=worker-listener&keepalives=1
-```
-
-### Step 3: Redeploy
-
-Railway redeploys automatically with the updated variable.
-
-### Code Notes
-
-- IPv4-specific DNS workarounds have been removed
-- Direct connection pool settings are superseded by the transaction pooler configuration above
+The IPv4 direct connection steps are deprecated. Use the transaction pooler instructions above for all Railway deployments. Legacy notes are retained only for historical context and no longer include connection strings.
 

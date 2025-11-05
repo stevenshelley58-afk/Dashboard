@@ -15,7 +15,8 @@
     "test": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "verify-tools": "node --loader tsx scripts/verify-tools.ts"
+    "verify-tools": "node --loader tsx scripts/verify-tools.ts",
+    "check:pooler": "node scripts/check-pooler.mjs"
   },
   "dependencies": {
     "@langchain/core": "^0.3.0",

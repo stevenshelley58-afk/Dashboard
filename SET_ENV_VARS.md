@@ -34,6 +34,12 @@
 6. Enter:
    - **Name:** `SUPABASE_DB_URL`
    - **Value:** `postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5`
+   - **Checklist:**
+     - Host ends with `.pooler.supabase.com`
+     - Port is `6543`
+     - Username is `postgres.gywjhlqmqucjkneucjbp`
+     - Password is URL-encoded (e.g., `!` → `%21`)
+     - Query string includes `sslmode=require`
 7. Click **Add**
 8. Railway will automatically redeploy
 

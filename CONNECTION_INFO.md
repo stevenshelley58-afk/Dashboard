@@ -47,11 +47,8 @@ postgresql://postgres.gywjhlqmqucjkneucjbp:URL_ENCODED_PASSWORD@aws-1-ap-southea
 - Port `6543`
 - Password must be URL-encoded (e.g., `!` → `%21`)
 
-### Direct Connection (Legacy)
-Only needed if you revert to the IPv4 add-on flow.
-```
-postgresql://postgres:URL_ENCODED_PASSWORD@db.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require&application_name=worker-listener&keepalives=1
-```
+### Legacy Note
+Direct connection guidance has been retired. Stick with the transaction pooler to avoid TLS and networking issues on Railway.
 
 ## Next Steps
 

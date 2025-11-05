@@ -49,7 +49,7 @@
 Go to Railway Dashboard → Service → Variables and add:
 
 ```
-SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require
+SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:URL_ENCODED_PASSWORD@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
 META_ACCESS_TOKEN=<your-token>
 META_AD_ACCOUNT_ID=<your-account-id>
 GA4_CREDENTIALS_JSON='<your-json>'

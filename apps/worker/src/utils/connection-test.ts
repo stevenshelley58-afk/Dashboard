@@ -7,6 +7,48 @@ import { logger } from './logger.js';
 
 const log = logger('connection-test');
 
+const poolerHostSuffix = '.pooler.supabase.com';
+const poolerPort = '6543';
+const expectedPoolerUser = 'postgres.gywjhlqmqucjkneucjbp';
+
+function sanitizeConnectionUrl(url: URL): string {
+  const portSegment = url.port ? `:${url.port}` : '';
+  const userSegment = url.username
+    ? `${url.username}${url.password ? ':***' : ''}@`
+    : '';
+
+  return `${url.protocol}//${userSegment}${url.hostname}${portSegment}${url.pathname}${url.search}${url.hash}`;
+}
+
+function validatePoolerUrl(dbUrl: string): { host: string; port: string; user: string; sanitizedUrl: string } {
+  const parsed = new URL(dbUrl);
+
+  if (!parsed.hostname.endsWith(poolerHostSuffix)) {
+    throw new Error(
+      `SUPABASE_DB_URL must end with ${poolerHostSuffix}. Current host: ${parsed.hostname}`
+    );
+  }
+
+  if (parsed.port !== poolerPort) {
+    throw new Error(
+      `SUPABASE_DB_URL must use port ${poolerPort}. Current port: ${parsed.port || 'undefined'}`
+    );
+  }
+
+  if (parsed.username !== expectedPoolerUser) {
+    throw new Error(
+      `SUPABASE_DB_URL username must match ${expectedPoolerUser}. Current username: ${parsed.username || 'undefined'}`
+    );
+  }
+
+  return {
+    host: parsed.hostname,
+    port: parsed.port,
+    user: parsed.username,
+    sanitizedUrl: sanitizeConnectionUrl(parsed),
+  };
+}
+
 export interface TestResult {
   name: string;
   success: boolean;
@@ -17,15 +59,23 @@ export interface TestResult {
  * Test database connection
  */
 export async function testDatabase(dbUrl: string): Promise<TestResult> {
+  const details = validatePoolerUrl(dbUrl);
   const pool = new Pool({
     connectionString: dbUrl,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: false, servername: details.host },
     max: 1,
     connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 5000,
   });
 
   try {
+    log.info('Testing database connection (sanitized)', {
+      host: details.host,
+      port: Number(details.port),
+      user: details.user,
+      sanitizedDbUrl: details.sanitizedUrl,
+    });
+
     const result = await pool.query('SELECT 1 as test');
     await pool.end();
 

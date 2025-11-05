@@ -1,12 +1,56 @@
 /** Environment variable validation and configuration */
 import { z } from 'zod';
 
+const poolerHostSuffix = '.pooler.supabase.com';
+
+const supabaseDbUrlSchema = z
+  .string()
+  .url()
+  .superRefine((value, ctx) => {
+    try {
+      const parsed = new URL(value);
+
+      if (!parsed.hostname.endsWith(poolerHostSuffix)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `SUPABASE_DB_URL must use the Supabase transaction pooler host (hostname must end with ${poolerHostSuffix})`,
+        });
+      }
+
+      if (parsed.port && parsed.port !== '6543') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'SUPABASE_DB_URL must use port 6543 for the transaction pooler',
+        });
+      }
+
+      if (!parsed.port) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'SUPABASE_DB_URL must explicitly specify port 6543',
+        });
+      }
+
+      if (!parsed.username.startsWith('postgres.')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'SUPABASE_DB_URL username must include the Supabase project ref (e.g., postgres.<project_ref>)',
+        });
+      }
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `SUPABASE_DB_URL must be a valid PostgreSQL URI: ${(error as Error).message}`,
+      });
+    }
+  });
+
 const envSchema = z.object({
   // Supabase
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  SUPABASE_DB_URL: z.string().url(),
+  SUPABASE_DB_URL: supabaseDbUrlSchema,
   SUPABASE_JWT_SECRET: z.string().min(1).optional(),
 
   // Shopify (optional for now)

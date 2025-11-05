@@ -13,7 +13,7 @@ Write-Host "`n2. Setting environment variables..." -ForegroundColor Yellow
 
 railway variables --set "NODE_ENV=production"
 
-railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz!cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1"
+railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5"
 
 railway variables --set "PACKAGE_MANAGER=pnpm"
 
@@ -23,8 +23,10 @@ railway variables
 
 Write-Host "`n✅ Environment variables set! Railway will automatically redeploy." -ForegroundColor Green
 Write-Host "`nConnection string details:" -ForegroundColor Cyan
-Write-Host "  - Host: db.gywjhlqmqucjkneucjbp.supabase.co (direct connection)" -ForegroundColor Gray
+Write-Host "  - Host: aws-1-ap-southeast-2.pooler.supabase.com" -ForegroundColor Gray
+Write-Host "  - Port: 6543" -ForegroundColor Gray
 Write-Host "  - SSL: enabled (sslmode=require)" -ForegroundColor Gray
 Write-Host "  - Application name: worker-listener" -ForegroundColor Gray
 Write-Host "  - Keepalives: enabled" -ForegroundColor Gray
+Write-Host "  - connect_timeout: 5" -ForegroundColor Gray
 

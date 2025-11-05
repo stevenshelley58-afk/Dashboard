@@ -98,10 +98,10 @@ supabase functions deploy sync
 
 2. **Set environment variables in Railway dashboard:**
    
-   **Required:**
-   ```
-   SUPABASE_DB_URL=postgresql://postgres.<project-ref>.supabase.co:5432/postgres?sslmode=require
-   ```
+  **Required:**
+  ```
+  SUPABASE_DB_URL=postgresql://postgres.<project-ref>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
+  ```
    
    **Optional (for ETL functionality):**
    ```

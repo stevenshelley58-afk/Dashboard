@@ -75,10 +75,5 @@ new Pool({
 
 ## Legacy Direct Connection (Reference)
 
-If you ever need the direct IPv4 connection (requires Supabase IPv4 add-on), use:
-```
-postgresql://postgres:URL_ENCODED_PASSWORD@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require
-```
-
-See `FIX_IPv6_ISSUE.md` for the full legacy flow.
+The IPv4 direct connection guidance has been deprecated. Stick with the transaction pooler to ensure Railway compatibility.
 

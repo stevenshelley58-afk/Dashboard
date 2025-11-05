@@ -9,20 +9,77 @@ import { KlaviyoETL } from './etl/klaviyo.js';
 
 const log = logger('worker');
 
+const poolerHostSuffix = '.pooler.supabase.com';
+const poolerPort = '6543';
+const expectedPoolerUser = 'postgres.gywjhlqmqucjkneucjbp';
+
+const poolDefaults = {
+  max: 1,
+  connectionTimeoutMillis: 5000,
+  idleTimeoutMillis: 5000,
+  sslRejectUnauthorized: false,
+};
+
+interface PoolerConnectionDetails {
+  host: string;
+  port: string;
+  user: string;
+  sanitizedUrl: string;
+}
+
 import type { ETLRunRecord } from './types/etl.js';
+
+function sanitizeConnectionUrl(url: URL): string {
+  const portSegment = url.port ? `:${url.port}` : '';
+  const userSegment = url.username
+    ? `${url.username}${url.password ? ':***' : ''}@`
+    : '';
+
+  return `${url.protocol}//${userSegment}${url.hostname}${portSegment}${url.pathname}${url.search}${url.hash}`;
+}
+
+function assertPoolerConnection(connStr: string): PoolerConnectionDetails {
+  const parsed = new URL(connStr);
+
+  if (!parsed.hostname.endsWith(poolerHostSuffix)) {
+    throw new Error(
+      `SUPABASE_DB_URL must end with ${poolerHostSuffix}. Current host: ${parsed.hostname}`
+    );
+  }
+
+  if (parsed.port !== poolerPort) {
+    throw new Error(
+      `SUPABASE_DB_URL must use port ${poolerPort}. Current port: ${parsed.port || 'undefined'}`
+    );
+  }
+
+  if (parsed.username !== expectedPoolerUser) {
+    throw new Error(
+      `SUPABASE_DB_URL username must match ${expectedPoolerUser}. Current username: ${parsed.username || 'undefined'}`
+    );
+  }
+
+  return {
+    host: parsed.hostname,
+    port: parsed.port,
+    user: parsed.username,
+    sanitizedUrl: sanitizeConnectionUrl(parsed),
+  };
+}
 
 /**
  * Create a PostgreSQL pool tuned for the Supabase transaction pooler.
  */
-function createPool(connStr: string): Pool {
+function createPool(connStr: string, host: string): Pool {
   const poolConfig: PoolConfig = {
     connectionString: connStr,
     ssl: {
-      rejectUnauthorized: false,
+      rejectUnauthorized: poolDefaults.sslRejectUnauthorized,
+      servername: host,
     },
-    max: 1,
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 5000,
+    max: poolDefaults.max,
+    connectionTimeoutMillis: poolDefaults.connectionTimeoutMillis,
+    idleTimeoutMillis: poolDefaults.idleTimeoutMillis,
   };
 
   return new Pool(poolConfig);
@@ -32,6 +89,7 @@ export class Worker {
   private pool: Pool | null = null;
   private running: boolean = false;
   private pollInterval: number = 5000; // 5 seconds
+  private connectionDetails: PoolerConnectionDetails;
 
   constructor() {
     const dbUrl = process.env.SUPABASE_DB_URL;
@@ -39,7 +97,19 @@ export class Worker {
       throw new Error('SUPABASE_DB_URL environment variable is required');
     }
 
-    log.info('Worker initialized');
+    this.connectionDetails = assertPoolerConnection(dbUrl);
+
+    log.info('Worker initialized', {
+      connection: {
+        host: this.connectionDetails.host,
+        port: Number(this.connectionDetails.port),
+        user: this.connectionDetails.user,
+        sslRejectUnauthorized: poolDefaults.sslRejectUnauthorized,
+        connectionTimeoutMillis: poolDefaults.connectionTimeoutMillis,
+        idleTimeoutMillis: poolDefaults.idleTimeoutMillis,
+      },
+    });
+    log.info('SUPABASE_DB_URL (redacted)', this.connectionDetails.sanitizedUrl);
   }
 
   /**
@@ -51,6 +121,9 @@ export class Worker {
       throw new Error('SUPABASE_DB_URL environment variable is required');
     }
 
+    // Re-assert details in case the environment changed between constructor and runtime
+    this.connectionDetails = assertPoolerConnection(dbUrl);
+
     try {
       // Close existing pool if it exists
       if (this.pool) {
@@ -58,7 +131,17 @@ export class Worker {
       }
 
       // Create pool with standard configuration
-      this.pool = createPool(dbUrl);
+      this.pool = createPool(dbUrl, this.connectionDetails.host);
+
+      log.info('Supabase pooler configuration', {
+        host: this.connectionDetails.host,
+        port: Number(this.connectionDetails.port),
+        user: this.connectionDetails.user,
+        sslRejectUnauthorized: poolDefaults.sslRejectUnauthorized,
+        connectionTimeoutMillis: poolDefaults.connectionTimeoutMillis,
+        idleTimeoutMillis: poolDefaults.idleTimeoutMillis,
+      });
+      log.info('SUPABASE_DB_URL (redacted)', this.connectionDetails.sanitizedUrl);
       
       // Test the connection
       const client = await this.pool.connect();

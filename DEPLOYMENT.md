@@ -81,7 +81,7 @@ In Railway → Service → Variables:
 
 **Required:**
 ```
-SUPABASE_DB_URL=postgresql://postgres.<region>.supabase.co:5432/postgres?sslmode=require
+SUPABASE_DB_URL=postgresql://postgres.<region>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
 ```
 
 **Platform APIs (as needed):**
