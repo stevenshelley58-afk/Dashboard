@@ -1,60 +1,61 @@
-# Fix Supabase IPv6 Connection Issue
+# Supabase Connection Setup
 
-## Problem
-Supabase has moved to IPv6-only for direct database connections. Railway containers don't have IPv6 connectivity, causing `ENETUNREACH` errors.
+> **Recommended:** Use the Supabase **Transaction Pooler** (Option A) for Railway. The IPv4 add-on instructions remain below for archival purposes.
 
-## Solution: Use Supabase Connection Pooler (IPv4-Compatible)
+## ✅ Option A — Transaction Pooler (Recommended)
 
-### Step 1: Get Your Pooler Connection String
+1. **Get Pooler URL**
+   - Supabase Dashboard → **Settings** → **Database**
+   - Under **Connection string**, choose **Connection pooling** → **Transaction**
+   - Copy the PostgreSQL URI. It should look like:
+     ```
+     postgresql://postgres.<PROJECT_REF>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
+     ```
 
-1. Go to your Supabase Dashboard: https://supabase.com/dashboard/project/gywjhlqmqucjkneucjbp
-2. Navigate to **Settings** → **Database**
-3. Scroll to **Connection String** section
-4. Select **Connection pooling** (NOT "Direct connection")
-5. Choose **Transaction mode** (recommended for short-lived connections like Railway workers)
-6. Copy the connection string - it should look like:
+2. **Update Railway Variable**
+   - In Railway → Worker service → **Variables**, set `SUPABASE_DB_URL` to the copied URI
+   - Ensure the password stays URL-encoded (e.g., `!` → `%21`)
+
+3. **Redeploy**
+   - Railway redeploys automatically; confirm the worker logs no longer show `SELF_SIGNED_CERT_IN_CHAIN`
+
+4. **Pool Configuration**
+   - Code now uses `max: 1`, `connectionTimeoutMillis: 5000`, `idleTimeoutMillis: 5000`, and `ssl.rejectUnauthorized = false`
+
+## Legacy IPv4 Flow (Reference Only)
+
+If you need the direct IPv4 connection steps (e.g., for troubleshooting), the previous process is documented below.
+
+### ✅ IPv4 Add-On Enabled
+
+The Supabase IPv4 add-on allows direct database connections from Railway containers.
+
+### Step 1: Get Your IPv4 Connection String
+
+1. Supabase Dashboard → **Settings** → **Database**
+2. Under **Connection string**, choose **Direct connection**
+3. Copy the IPv4 PostgreSQL URI, e.g.:
    ```
-   postgresql://postgres.gywjhlqmqucjkneucjbp:[YOUR-PASSWORD]@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres
+   postgresql://postgres:[YOUR-PASSWORD]@[IPv4-ADDRESS]:5432/postgres
    ```
 
 ### Step 2: Update Railway Environment Variable
 
-In Railway dashboard for your worker service:
-
-1. Go to **Variables**
-2. Update `SUPABASE_DB_URL` to the **pooler connection string** (from Step 1)
-3. Make sure to:
-   - URL-encode the password (replace `!` with `%21`, etc.)
-   - Add `?sslmode=require` at the end
-   - Optionally add `&application_name=worker-listener&keepalives=1`
+1. Railway → Worker service → **Variables**
+2. Set `SUPABASE_DB_URL` to the IPv4 URI
+3. Ensure the password is URL-encoded and add `?sslmode=require`
 
 **Example:**
 ```
-SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1
+SUPABASE_DB_URL=postgresql://postgres:J7Tg4LkQiTbz%21cS@db.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require&application_name=worker-listener&keepalives=1
 ```
 
 ### Step 3: Redeploy
 
-Railway will automatically redeploy with the new environment variable. The pooler supports IPv4 and your worker will connect successfully.
+Railway redeploys automatically with the updated variable.
 
----
+### Code Notes
 
-## Alternative: Enable IPv4 Add-On (Costs Extra)
-
-If you need direct database connections:
-
-1. Go to Supabase Dashboard: https://supabase.com/dashboard/project/gywjhlqmqucjkneucjbp
-2. Navigate to **Settings** → **Add-ons**
-3. Enable **IPv4 Address** add-on (this costs additional money per month)
-4. Use the IPv4 connection string provided
-
----
-
-## Why This Works
-
-- **Direct connection** (`db.gywjhlqmqucjkneucjbp.supabase.co`) = IPv6 only
-- **Connection pooler** (`aws-1-ap-southeast-2.pooler.supabase.com`) = Supports both IPv4 and IPv6
-- Railway containers = IPv4 only
-
-Using the pooler solves the connectivity issue without code changes.
+- IPv4-specific DNS workarounds have been removed
+- Direct connection pool settings are superseded by the transaction pooler configuration above
 

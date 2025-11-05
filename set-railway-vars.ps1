@@ -8,9 +8,9 @@ Write-Host "`n1. Linking to Railway project..." -ForegroundColor Yellow
 Write-Host "   Select 'refreshing-strength' when prompted" -ForegroundColor Gray
 railway link
 
-# Set required environment variable (using CONNECTION POOLER for IPv4 compatibility)
+# Set required environment variable (Supabase transaction pooler - Option A)
 Write-Host "`n2. Setting SUPABASE_DB_URL..." -ForegroundColor Yellow
-railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz!cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1"
+railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5"
 
 # Verify variables
 Write-Host "`n3. Verifying variables..." -ForegroundColor Yellow

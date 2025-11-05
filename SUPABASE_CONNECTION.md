@@ -1,47 +1,36 @@
 # Supabase → Railway Connection Setup
 
-## Connection String Format
+## Connection String Format (Recommended)
 
-For Railway service connecting to Supabase Postgres, use the **direct connection** (not pooler):
+Use the Supabase **transaction pooler** connection string:
 
-### Format:
 ```
-postgresql://postgres:YOUR_PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres?sslmode=require&application_name=worker-listener&keepalives=1
+postgresql://postgres.<PROJECT_REF>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
 ```
 
-### Components:
+### Components
 - **Protocol:** `postgresql://`
-- **User:** `postgres`
-- **Password:** Your Supabase database password (URL-encode special characters)
-- **Host:** `db.PROJECT_REF.supabase.co` (NOT `postgres.PROJECT_REF.supabase.co`)
-- **Port:** `5432`
+- **User:** `postgres.<PROJECT_REF>` (includes project ref)
+- **Password:** Supabase database password (URL-encoded)
+- **Host:** `<region>.pooler.supabase.com` value shown in Supabase dashboard
+- **Port:** `6543`
 - **Database:** `postgres`
-- **SSL:** `sslmode=require` (required)
+- **SSL:** `sslmode=require`
 - **Additional params:**
-  - `application_name=worker-listener` (optional, for monitoring)
-  - `keepalives=1` (optional, for connection health)
+  - `application_name=worker-listener`
+  - `keepalives=1`
+  - `connect_timeout=5`
 
-## How to Get Your Connection String
+## How to Get Your Pooler URI
 
-### Option 1: Supabase Dashboard (Recommended)
-1. Go to Supabase Dashboard → Project Settings → Database
-2. Under "Connection string", select **"URI"** tab
-3. Copy the connection string
-4. Make sure it starts with `db.` not `postgres.` (direct connection)
-5. Add `?sslmode=require` if not already present
+1. Supabase Dashboard → **Settings** → **Database**
+2. In **Connection string**, choose **Connection pooling** → **Transaction**
+3. Copy the PostgreSQL URI (already includes the correct username/host)
+4. Confirm the password is URL-encoded
 
-### Option 2: Build Manually
-1. Get your project ref from Supabase Dashboard URL: `https://supabase.com/dashboard/project/PROJECT_REF`
-2. Get your database password from Supabase Dashboard → Project Settings → Database → Database password
-3. URL-encode special characters in password (e.g., `!` becomes `%21`)
-4. Build the string:
-   ```
-   postgresql://postgres:YOUR_ENCODED_PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres?sslmode=require
-   ```
+## URL Encoding Reference
 
-## URL Encoding Special Characters
-
-If your password contains special characters, encode them:
+Encode special characters in your password:
 - `!` → `%21`
 - `@` → `%40`
 - `#` → `%23`
@@ -55,63 +44,41 @@ If your password contains special characters, encode them:
 **Example:**
 - Password: `MyP@ss!123`
 - Encoded: `MyP%40ss%21123`
-- Full connection string: `postgresql://postgres:MyP%40ss%21123@db.PROJECT.supabase.co:5432/postgres?sslmode=require`
+- Result: `postgresql://postgres.<PROJECT_REF>:MyP%40ss%21123@aws-<region>.pooler.supabase.com:6543/postgres?sslmode=require...`
 
 ## Railway Environment Variable
 
-Set this in Railway Dashboard → Service → Variables:
+Set in Railway Dashboard → Service → Variables:
 
 ```
-SUPABASE_DB_URL=postgresql://postgres:YOUR_ENCODED_PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres?sslmode=require&application_name=worker-listener&keepalives=1
+SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
 ```
 
 ## Code Configuration
 
-The worker uses `pg` library with:
+The worker uses `pg` with safe pooler defaults:
 ```typescript
 new Pool({
   connectionString: process.env.SUPABASE_DB_URL,
-  ssl: { rejectUnauthorized: false }, // Required for Supabase
+  ssl: { rejectUnauthorized: false },
   max: 1,
+  connectionTimeoutMillis: 5000,
+  idleTimeoutMillis: 5000,
 })
 ```
 
-This configuration is correct and will work with the connection string format above.
+## Common Checks
 
-## Common Issues
+- Ensure the username matches `postgres.<PROJECT_REF>`
+- Keep `sslmode=require` and `connect_timeout=5` in the URI
+- Password must stay URL-encoded when pasted into Railway
 
-### "self signed certificate" error
-- ✅ Already handled with `ssl: { rejectUnauthorized: false }`
-- ✅ Connection string includes `?sslmode=require`
+## Legacy Direct Connection (Reference)
 
-### "connection refused" or "no pg_hba.conf entry"
-- Check you're using `db.PROJECT_REF.supabase.co` (direct connection)
-- NOT `postgres.PROJECT_REF.supabase.co` (pooler)
-- Verify password is correct and URL-encoded
-- Check Supabase firewall/allowed IPs (if configured)
-
-### Connection timeout
-- Verify `keepalives=1` is in the connection string
-- Check Railway service can reach Supabase (no firewall blocking)
-
-### Password encoding issues
-- Use a URL encoder tool to encode your password
-- Or use Supabase Dashboard to copy the pre-encoded connection string
-
-## Testing the Connection
-
-### Via Railway CLI:
-```bash
-railway run psql "$SUPABASE_DB_URL"
+If you ever need the direct IPv4 connection (requires Supabase IPv4 add-on), use:
+```
+postgresql://postgres:URL_ENCODED_PASSWORD@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require
 ```
 
-### Via Worker Code:
-The worker will log connection status on startup. Check Railway logs:
-```bash
-railway logs --tail 50
-```
-
-Look for:
-- ✅ "Worker initialized" - connection successful
-- ❌ "Worker failed" - connection failed, check error message
+See `FIX_IPv6_ISSUE.md` for the full legacy flow.
 

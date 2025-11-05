@@ -20,6 +20,9 @@ export async function testDatabase(dbUrl: string): Promise<TestResult> {
   const pool = new Pool({
     connectionString: dbUrl,
     ssl: { rejectUnauthorized: false },
+    max: 1,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 5000,
   });
 
   try {

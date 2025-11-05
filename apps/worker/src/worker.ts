@@ -6,91 +6,23 @@ import { ShopifyETL } from './etl/shopify.js';
 import { MetaETL } from './etl/meta.js';
 import { GA4ETL } from './etl/ga4.js';
 import { KlaviyoETL } from './etl/klaviyo.js';
-import * as dns from 'node:dns';
 
 const log = logger('worker');
 
 import type { ETLRunRecord } from './types/etl.js';
 
 /**
- * Resolve an IPv4 address for the given host, trying environment overrides first.
+ * Create a PostgreSQL pool tuned for the Supabase transaction pooler.
  */
-async function resolveIPv4Host(originalHost: string): Promise<string> {
-  const manualOverride = process.env.SUPABASE_DB_IPV4 || (process.env.PGHOSTADDR && process.env.PGHOSTADDR !== '0.0.0.0' ? process.env.PGHOSTADDR : undefined);
-  if (manualOverride) {
-    log.info(`Using manually configured IPv4 host: ${manualOverride}`);
-    return manualOverride;
-  }
-
-  const strategies: Array<() => Promise<string | null>> = [
-    async () => {
-      try {
-        const { address } = await dns.promises.lookup(originalHost, { family: 4 });
-        return address;
-      } catch (error) {
-        log.warn(`dns.lookup IPv4 failed for ${originalHost}`, error);
-        return null;
-      }
-    },
-    async () => {
-      try {
-        const addresses = await dns.promises.resolve4(originalHost);
-        return addresses[0] ?? null;
-      } catch (error) {
-        log.warn(`dns.resolve4 failed for ${originalHost}`, error);
-        return null;
-      }
-    },
-    async () => {
-      try {
-        const resolver = new dns.promises.Resolver();
-        resolver.setServers(['1.1.1.1', '8.8.8.8']);
-        const addresses = await resolver.resolve4(originalHost);
-        return addresses[0] ?? null;
-      } catch (error) {
-        log.warn(`Custom resolver resolve4 failed for ${originalHost}`, error);
-        return null;
-      }
-    },
-  ];
-
-  for (const strategy of strategies) {
-    const result = await strategy();
-    if (result) {
-      log.info(`Resolved ${originalHost} to IPv4: ${result}`);
-      process.env.PGHOSTADDR = result;
-      return result;
-    }
-  }
-
-  throw new Error(
-    `Unable to resolve IPv4 address for ${originalHost}. ` +
-    `Set SUPABASE_DB_IPV4 or PGHOSTADDR in Railway variables to a valid IPv4 address.`
-  );
-}
-
-/**
- * Create a PostgreSQL pool with IPv4 resolution to avoid IPv6 connectivity issues.
- * Resolves hostname to IPv4 address and preserves original hostname in TLS SNI.
- */
-async function makeIPv4Pool(connStr: string): Promise<Pool> {
-  const url = new URL(connStr);
-  const originalHost = url.hostname;
-  const ipv4Host = await resolveIPv4Host(originalHost);
-
-  url.hostname = ipv4Host;
-
-  const ssl = {
-    rejectUnauthorized: false,
-    servername: originalHost,
-  } as const;
-
+function createPool(connStr: string): Pool {
   const poolConfig: PoolConfig = {
-    connectionString: url.toString(),
-    host: ipv4Host,
-    ssl,
+    connectionString: connStr,
+    ssl: {
+      rejectUnauthorized: false,
+    },
     max: 1,
     connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 5000,
   };
 
   return new Pool(poolConfig);
@@ -111,7 +43,7 @@ export class Worker {
   }
 
   /**
-   * Initialize database connection with IPv4 resolution
+   * Initialize database connection using Supabase transaction pooler
    */
   async initializeConnection(): Promise<void> {
     const dbUrl = process.env.SUPABASE_DB_URL;
@@ -125,8 +57,8 @@ export class Worker {
         await this.pool.end().catch(() => {});
       }
 
-      // Create pool with IPv4 resolution
-      this.pool = await makeIPv4Pool(dbUrl);
+      // Create pool with standard configuration
+      this.pool = createPool(dbUrl);
       
       // Test the connection
       const client = await this.pool.connect();
@@ -141,7 +73,7 @@ export class Worker {
   }
 
   async start(): Promise<void> {
-    // Initialize connection with IPv4 resolution
+    // Initialize database connection
     await this.initializeConnection();
     
     this.running = true;

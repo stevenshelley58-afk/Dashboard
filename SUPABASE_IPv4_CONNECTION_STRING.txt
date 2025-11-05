@@ -1,0 +1,5 @@
+postgresql://postgres:J7Tg4LkQiTbz%21cS@db.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require&application_name=worker-listener&keepalives=1
+
+NOTE: Legacy IPv4 direct connection (requires Supabase IPv4 add-on). Prefer the transaction pooler string in `RAILWAY_CONNECTION_STRING.txt`.
+Password is URL-encoded: ! becomes %21
+

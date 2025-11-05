@@ -6,14 +6,14 @@ Set these in Railway Dashboard → Service → Variables:
 
 ```
 NODE_ENV=production
-SUPABASE_DB_URL=postgresql://postgres:YOUR_PASSWORD@db.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require&application_name=worker-listener&keepalives=1
+SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
 PACKAGE_MANAGER=pnpm
 ```
 
 **Important:** 
-- Replace `YOUR_PASSWORD` with your actual Supabase database password
-- URL-encode special characters in password (e.g., `!` → `%21`)
-- Use `db.` prefix (direct connection), NOT `postgres.` (pooler)
+- Replace credentials with your actual Supabase values if different
+- Password must be URL-encoded (e.g., `!` → `%21`)
+- Use the transaction pooler hostname from Supabase Dashboard (Connection string → Connection pooling → Transaction)
 - See `SUPABASE_CONNECTION.md` for detailed instructions
 
 ## Railway Service Settings
@@ -50,7 +50,7 @@ Based on your working configuration:
 ```powershell
 railway link
 railway variables --set "NODE_ENV=production"
-railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require&application_name=worker-listener&keepalives=1"
+railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5"
 railway variables --set "PACKAGE_MANAGER=pnpm"
 ```
 

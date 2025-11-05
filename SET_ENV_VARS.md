@@ -9,9 +9,9 @@
    - Select workspace: `stevenshelley58-afk's Projects`
    - Select project: `refreshing-strength`
 
-2. **Set the required environment variable:**
+2. **Set the required environment variable (Supabase transaction pooler):**
    ```powershell
-   railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require"
+   railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5"
    ```
 
 3. **Verify it was set:**
@@ -33,7 +33,7 @@
 5. Click **New Variable**
 6. Enter:
    - **Name:** `SUPABASE_DB_URL`
-   - **Value:** `postgresql://postgres.gywjhlqmqucjkneucjbp.supabase.co:5432/postgres?sslmode=require`
+   - **Value:** `postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5`
 7. Click **Add**
 8. Railway will automatically redeploy
 
@@ -70,6 +70,6 @@ Select your project again.
 
 ### Service not starting
 - Check deployment logs for errors
-- Verify `SUPABASE_DB_URL` is set correctly
+- Verify `SUPABASE_DB_URL` is set correctly and uses the pooler hostname
 - Ensure the connection string includes `?sslmode=require`
 
