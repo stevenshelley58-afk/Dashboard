@@ -11,7 +11,6 @@ const log = logger('worker');
 
 const poolerHostSuffix = '.pooler.supabase.com';
 const poolerPort = '6543';
-const expectedPoolerUser = 'postgres.gywjhlqmqucjkneucjbp';
 
 const poolDefaults = {
   max: 1,
@@ -53,9 +52,9 @@ function assertPoolerConnection(connStr: string): PoolerConnectionDetails {
     );
   }
 
-  if (parsed.username !== expectedPoolerUser) {
+  if (!parsed.username.startsWith('postgres.')) {
     throw new Error(
-      `SUPABASE_DB_URL username must match ${expectedPoolerUser}. Current username: ${parsed.username || 'undefined'}`
+      `SUPABASE_DB_URL username must start with "postgres.". Current username: ${parsed.username || 'undefined'}`
     );
   }
 

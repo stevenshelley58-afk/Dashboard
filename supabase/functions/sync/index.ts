@@ -83,6 +83,7 @@ serve(async (req) => {
 
     // Validate caller has access to shop_id
     const { data: shopAccess, error: accessError } = await supabaseClient
+      .schema('app_dashboard')
       .from('user_shops')
       .select('shop_id, role')
       .eq('user_id', user.id)
@@ -135,8 +136,8 @@ serve(async (req) => {
       );
     }
 
-    // Insert QUEUED job using RPC function
-    const { data, error } = await serviceRoleClient.rpc('insert_etl_run', {
+    // Insert QUEUED job using RPC function (schema-qualified; SECURITY DEFINER handles perms)
+    const { data, error } = await supabaseClient.rpc('core_warehouse.insert_etl_run', {
       p_shop_id: body.shop_id,
       p_status: 'QUEUED',
       p_job_type: body.job_type,
