@@ -31,7 +31,7 @@ Frontend (apps/web)	Vercel + Next.js	Hosts the app. Vercel ↔ Supabase integrat
 Vercel
 +1
 
-Worker (apps/worker)	Railway	Long-running background worker. Connects to Supabase via SUPABASE_DB_URL with TLS (?sslmode=require). Use pooler strings when appropriate. Transaction-mode pooler is ideal for serverless. Session mode suits long-lived workers. 
+Worker (apps/worker)	Railway	Long-running background worker. Connects to Supabase via SUPABASE_DB_URL with TLS (code-level `ssl: { rejectUnauthorized: false }`, no sslmode param). Use transaction pooler strings. Transaction-mode pooler is ideal for serverless. Session mode suits long-lived workers. 
 Supabase
 +1
 
@@ -135,7 +135,7 @@ Supabase → Project → Settings → API → Config
 SUPABASE_URL="https://<project-ref>.supabase.co"
 SUPABASE_ANON_KEY="<public-anon-key>"
 SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
-SUPABASE_DB_URL="postgresql://postgres.<project-ref>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5"
+SUPABASE_DB_URL="postgresql://postgres.<project-ref>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5"
 SUPABASE_JWT_SECRET="<project-jwt-secret>"
 
 
@@ -190,7 +190,7 @@ For Cursor or local CLI testing.
 SUPABASE_URL="https://<project-ref>.supabase.co"
 SUPABASE_ANON_KEY="<public-anon-key>"
 SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
-SUPABASE_DB_URL="postgresql://postgres.<project-ref>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5"
+SUPABASE_DB_URL="postgresql://postgres.<project-ref>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5"
 SUPABASE_JWT_SECRET="<project-jwt-secret>"
 
 SHOPIFY_ADMIN_ACCESS_TOKEN="<admin-access-token>"

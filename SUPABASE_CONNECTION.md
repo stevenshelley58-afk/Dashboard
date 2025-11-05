@@ -5,7 +5,7 @@
 Use the Supabase **transaction pooler** connection string:
 
 ```
-postgresql://postgres.<PROJECT_REF>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
+postgresql://postgres.<PROJECT_REF>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5
 ```
 
 ### Components
@@ -15,11 +15,11 @@ postgresql://postgres.<PROJECT_REF>:URL_ENCODED_PASSWORD@aws-<region>.pooler.sup
 - **Host:** `<region>.pooler.supabase.com` value shown in Supabase dashboard
 - **Port:** `6543`
 - **Database:** `postgres`
-- **SSL:** `sslmode=require`
 - **Additional params:**
   - `application_name=worker-listener`
   - `keepalives=1`
   - `connect_timeout=5`
+- **TLS:** Controlled by code-level `ssl: { rejectUnauthorized: false }` (do not include `sslmode` in URL)
 
 ## How to Get Your Pooler URI
 
@@ -51,7 +51,7 @@ Encode special characters in your password:
 Set in Railway Dashboard → Service → Variables:
 
 ```
-SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
+SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5
 ```
 
 ## Code Configuration
@@ -70,8 +70,9 @@ new Pool({
 ## Common Checks
 
 - Ensure the username matches `postgres.<PROJECT_REF>`
-- Keep `sslmode=require` and `connect_timeout=5` in the URI
+- Include `connect_timeout=5` in the URI
 - Password must stay URL-encoded when pasted into Railway
+- **Do not** include `sslmode=require` (it overrides code-level TLS configuration)
 
 ## Legacy Direct Connection (Reference)
 

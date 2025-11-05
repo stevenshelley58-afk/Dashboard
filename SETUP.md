@@ -100,8 +100,10 @@ supabase functions deploy sync
    
   **Required:**
   ```
-  SUPABASE_DB_URL=postgresql://postgres.<project-ref>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
+  SUPABASE_DB_URL=postgresql://postgres.<project-ref>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5
   ```
+  
+  **Note:** Do not include `sslmode=require`; TLS is controlled by code.
    
    **Optional (for ETL functionality):**
    ```
@@ -150,7 +152,7 @@ supabase db push
 
 ### Worker won't connect to database
 - Check `SUPABASE_DB_URL` is set correctly
-- Ensure TLS is enabled (`?sslmode=require`)
+- TLS is controlled by code-level `ssl: { rejectUnauthorized: false }` (do not use `sslmode`)
 - Verify connection pooler settings
 
 ### Frontend can't access Supabase
@@ -172,7 +174,7 @@ supabase db push
 - View build logs: `railway logs` or Railway dashboard
 
 **Runtime errors:**
-- Verify `SUPABASE_DB_URL` is set correctly with TLS (`?sslmode=require`)
+- Verify `SUPABASE_DB_URL` is set correctly (no `sslmode` parameter needed)
 - Check that worker can connect to database (view logs in Railway dashboard)
 - Ensure `dist/index.js` exists after build (check build output)
 - Verify all required environment variables are set

@@ -8,13 +8,23 @@ This file contains the exact environment variables needed for the Railway worker
 **Required for all deployments**
 
 ```
-SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
+SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5
 ```
 
 **Important:** 
 - Username must include your project ref (e.g., `postgres.gywjhlqmqucjkneucjbp`)
 - Password must be URL-encoded (`!` → `%21`, etc.)
 - Use the pooler hostname from Supabase Dashboard → Connection string → Connection pooling → Transaction
+- **Do not include `sslmode=require`** (TLS is managed by code-level `ssl: { rejectUnauthorized: false }`)
+
+## Optional Backstop: PGSSLMODE
+
+If you encounter TLS regressions or want an extra safeguard:
+```
+PGSSLMODE=no-verify
+```
+
+This forces `pg` to skip cert validation at the environment level, complementing the code-level `ssl: { rejectUnauthorized: false }`. Only needed if URL params somehow override the Pool config.
 
 ## Optional Variables (for ETL functionality)
 

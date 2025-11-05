@@ -13,7 +13,7 @@ Write-Host "`n2. Setting environment variables..." -ForegroundColor Yellow
 
 railway variables --set "NODE_ENV=production"
 
-railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5"
+railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5"
 
 railway variables --set "PACKAGE_MANAGER=pnpm"
 

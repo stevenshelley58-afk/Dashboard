@@ -49,13 +49,15 @@
 Go to Railway Dashboard → Service → Variables and add:
 
 ```
-SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:URL_ENCODED_PASSWORD@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
+SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:URL_ENCODED_PASSWORD@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5
 META_ACCESS_TOKEN=<your-token>
 META_AD_ACCOUNT_ID=<your-account-id>
 GA4_CREDENTIALS_JSON='<your-json>'
 GA4_PROPERTY_ID=<your-property-id>
 KLAVIYO_API_KEY=<your-key>
 ```
+
+**Note:** `sslmode=require` has been removed; TLS is controlled by code-level `ssl: { rejectUnauthorized: false }`.
 
 ### Vercel Environment Variables
 Once deployed, add in Vercel Dashboard:

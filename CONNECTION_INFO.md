@@ -39,7 +39,7 @@
 
 ### Transaction Pooler (Current - Recommended)
 ```
-postgresql://postgres.gywjhlqmqucjkneucjbp:URL_ENCODED_PASSWORD@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
+postgresql://postgres.gywjhlqmqucjkneucjbp:URL_ENCODED_PASSWORD@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5
 ```
 
 - Username must include the project ref (`postgres.gywjhlqmqucjkneucjbp`)
@@ -59,7 +59,8 @@ Direct connection guidance has been retired. Stick with the transaction pooler t
 2. **Update Railway Environment Variable**:
    - Set `SUPABASE_DB_URL` to the pooler URI
    - Confirm the password remains URL-encoded
-   - Ensure `sslmode=require`, `application_name`, `keepalives=1`, `connect_timeout=5`
+   - Include `application_name`, `keepalives=1`, `connect_timeout=5`
+   - **Do not include `sslmode=require`** (let code control TLS via `ssl: { rejectUnauthorized: false }`)
 
 3. **Redeploy**: Railway will automatically redeploy with the new connection string
 

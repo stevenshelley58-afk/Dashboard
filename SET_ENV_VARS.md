@@ -11,7 +11,7 @@
 
 2. **Set the required environment variable (Supabase transaction pooler):**
    ```powershell
-   railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5"
+   railway variables --set "SUPABASE_DB_URL=postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5"
    ```
 
 3. **Verify it was set:**
@@ -33,13 +33,13 @@
 5. Click **New Variable**
 6. Enter:
    - **Name:** `SUPABASE_DB_URL`
-   - **Value:** `postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5`
+   - **Value:** `postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5`
    - **Checklist:**
      - Host ends with `.pooler.supabase.com`
      - Port is `6543`
      - Username is `postgres.gywjhlqmqucjkneucjbp`
      - Password is URL-encoded (e.g., `!` → `%21`)
-     - Query string includes `sslmode=require`
+     - **No `sslmode` parameter** (TLS is controlled by code-level `ssl: { rejectUnauthorized: false }`)
 7. Click **Add**
 8. Railway will automatically redeploy
 
@@ -77,5 +77,5 @@ Select your project again.
 ### Service not starting
 - Check deployment logs for errors
 - Verify `SUPABASE_DB_URL` is set correctly and uses the pooler hostname
-- Ensure the connection string includes `?sslmode=require`
+- Ensure the connection string does **not** include `sslmode=require` (it overrides code-level TLS settings)
 

@@ -9,8 +9,9 @@
    - Under **Connection string**, choose **Connection pooling** → **Transaction**
    - Copy the PostgreSQL URI. It should look like:
      ```
-     postgresql://postgres.<PROJECT_REF>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?sslmode=require&application_name=worker-listener&keepalives=1&connect_timeout=5
+     postgresql://postgres.<PROJECT_REF>:URL_ENCODED_PASSWORD@aws-<region>.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5
      ```
+   - **Note:** Do not include `sslmode=require`; TLS verification is controlled by code (`ssl: { rejectUnauthorized: false }`)
 
 2. **Update Railway Variable**
    - In Railway → Worker service → **Variables**, set `SUPABASE_DB_URL` to the copied URI
