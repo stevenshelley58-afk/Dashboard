@@ -71,6 +71,36 @@ function assertPoolerConnection(connStr: string): PoolerConnectionDetails {
  * Create a PostgreSQL pool tuned for the Supabase transaction pooler.
  */
 function createPool(connStr: string, host: string): Pool {
+  // DIAGNOSTIC: Log PG* env vars injected by Railway (before cleanup)
+  console.info('[pg-env-before-cleanup]', {
+    PGHOST: process.env.PGHOST,
+    PGPORT: process.env.PGPORT,
+    PGUSER: process.env.PGUSER,
+    PGPASSWORD: process.env.PGPASSWORD ? '***REDACTED***' : undefined,
+    PGDATABASE: process.env.PGDATABASE,
+    DATABASE_URL: process.env.DATABASE_URL ? '***EXISTS***' : undefined,
+  });
+
+  // Parse and log the Supabase URL we want to use
+  const url = new URL(connStr);
+  console.info('[supabase-url]', {
+    host: url.hostname,
+    port: url.port,
+    user: url.username,
+  });
+
+  // CRITICAL FIX: Delete Railway-injected PG* vars
+  // node-postgres reads these and they override connectionString
+  // Since we're using external Supabase, not Railway Postgres, we must remove these
+  delete process.env.PGHOST;
+  delete process.env.PGPORT;
+  delete process.env.PGUSER;
+  delete process.env.PGPASSWORD;
+  delete process.env.PGDATABASE;
+  delete process.env.DATABASE_URL;
+
+  console.info('[pg-env-after-cleanup]', 'All PG* environment variables deleted');
+
   const poolConfig: PoolConfig = {
     connectionString: connStr,
     ssl: {
@@ -81,6 +111,17 @@ function createPool(connStr: string, host: string): Pool {
     connectionTimeoutMillis: poolDefaults.connectionTimeoutMillis,
     idleTimeoutMillis: poolDefaults.idleTimeoutMillis,
   };
+
+  // Log the clean Pool config (without password)
+  console.info('[pool-config]', {
+    hasConnectionString: !!poolConfig.connectionString,
+    ssl: poolConfig.ssl,
+    max: poolConfig.max,
+    timeouts: {
+      connection: poolConfig.connectionTimeoutMillis,
+      idle: poolConfig.idleTimeoutMillis,
+    },
+  });
 
   return new Pool(poolConfig);
 }
