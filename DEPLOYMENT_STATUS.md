@@ -41,7 +41,12 @@
 - ⚠️ **Manual step required:** Configure environment variables in Railway dashboard (see `RAILWAY_ENV_VARS.md`)
 
 ### 4. Vercel
-- ⏳ In progress - project name issue being resolved
+- ✅ **Project created**: `dashboard` (steven-shelleys-projects/dashboard)
+- ✅ **Deployed to production**: Successfully deployed via Vercel CLI
+- ✅ **Production URL**: https://web-mu-black.vercel.app
+- ✅ **Build Status**: ✅ Ready (Build completed in 31s)
+- ✅ **Environment Variable Set**: `NEXT_PUBLIC_SUPABASE_URL=https://gywjhlqmqucjkneucjbp.supabase.co`
+- ⚠️ **Required**: Add `NEXT_PUBLIC_SUPABASE_ANON_KEY` environment variable (see VERCEL_CLI_DEPLOYMENT.md)
 
 ## 🔧 Next Steps Required
 
@@ -73,7 +78,7 @@ Or link Supabase integration to auto-sync.
 
 - ✅ **Supabase**: Fully deployed and operational
 - ✅ **Railway**: Build configuration fixed, ready for deployment
-- ⏳ **Vercel**: Setting up frontend
+- ✅ **Vercel**: Frontend deployed to production (anon key needs to be added)
 - ✅ **Git**: All code pushed to GitHub
 
 ## 🔧 Railway Fixes Applied
@@ -99,5 +104,7 @@ Or link Supabase integration to auto-sync.
 - **GitHub**: https://github.com/stevenshelley58-afk/Dashboard
 - **Supabase**: https://supabase.com/dashboard/project/gywjhlqmqucjkneucjbp
 - **Railway**: https://railway.com/project/86b15d9a-93e3-4562-91ab-5e7403e75cd5
+- **Vercel**: https://vercel.com/steven-shelleys-projects/dashboard
+- **Vercel Production**: https://web-mu-black.vercel.app
 - **Edge Function**: https://gywjhlqmqucjkneucjbp.supabase.co/functions/v1/sync
 

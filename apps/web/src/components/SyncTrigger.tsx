@@ -3,6 +3,7 @@
 /** Sync trigger component - client-side form */
 import { useState } from 'react';
 import { Platform, JobType } from '@/lib/config';
+import { ShopSelector } from './ShopSelector';
 
 export function SyncTrigger() {
   const [shopId, setShopId] = useState('');
@@ -13,6 +14,16 @@ export function SyncTrigger() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate form before submitting
+    if (!shopId || !shopId.trim()) {
+      setResult({
+        success: false,
+        message: 'Please select a shop',
+      });
+      return;
+    }
+
     setLoading(true);
     setResult(null);
 
@@ -23,7 +34,7 @@ export function SyncTrigger() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          shop_id: shopId,
+          shop_id: shopId.trim(),
           platform,
           job_type: jobType,
         }),
@@ -37,6 +48,10 @@ export function SyncTrigger() {
           message: `Sync triggered successfully! Run ID: ${data.run_id}`,
         });
         setShopId(''); // Reset form
+        // Refresh the page after a short delay to show the new sync
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
       } else {
         setResult({
           success: false,
@@ -60,16 +75,13 @@ export function SyncTrigger() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label htmlFor="shop_id" className="block text-sm font-medium text-gray-700 mb-1">
-            Shop ID
+            Shop
           </label>
-          <input
-            id="shop_id"
-            type="text"
+          <ShopSelector
             value={shopId}
-            onChange={(e) => setShopId(e.target.value)}
+            onChange={setShopId}
             required
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="sh_123abc"
+            disabled={loading}
           />
         </div>
 
