@@ -1,2 +1,0 @@
-Legacy IPv4 direct connection strings have been removed. Use the transaction pooler URI documented in `RAILWAY_CONNECTION_STRING.txt` instead.
-

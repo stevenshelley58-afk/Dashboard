@@ -1,14 +1,17 @@
 {
-  "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "target": "ES2020",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "outDir": "dist"
   },
-  "include": ["src/**/*"],
-  "references": [
-    { "path": "../../packages/config" }
-  ]
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules"]
 }
 

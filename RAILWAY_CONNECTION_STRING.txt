@@ -1,4 +1,0 @@
-postgresql://postgres.gywjhlqmqucjkneucjbp:J7Tg4LkQiTbz%21cS@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?application_name=worker-listener&keepalives=1&connect_timeout=5
-
-NOTE: This uses the Supabase CONNECTION POOLER (not direct connection) for IPv4 compatibility.
-Direct connections via the Supabase `db` host are IPv6-only and won't work on Railway.
