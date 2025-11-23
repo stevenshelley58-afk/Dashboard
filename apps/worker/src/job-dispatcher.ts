@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import { getPool } from "./db.js";
 import type { JobType } from "./job-types.js";
 import { isKnownJobType } from "./job-types.js";
+import { runMetaFreshJob, runMetaSevenDayFillJob } from "./jobs/meta.js";
 import { runShopifyFreshJob, runShopifySevenDayFillJob } from "./jobs/shopify.js";
 import type { SyncRunRecord } from "./types/sync-run.js";
 import { sleep } from "./utils/time.js";
@@ -16,6 +17,8 @@ type JobHandler = (run: SyncRunRecord, pool: Pool) => Promise<JobResult>;
 const JOB_HANDLERS: Record<JobType, JobHandler> = {
   shopify_7d_fill: runShopifySevenDayFillJob,
   shopify_fresh: runShopifyFreshJob,
+  meta_7d_fill: runMetaSevenDayFillJob,
+  meta_fresh: runMetaFreshJob,
 };
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;

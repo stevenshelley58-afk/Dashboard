@@ -1,32 +1,20 @@
-##### Core build artifacts #####
-node_modules/
-.turbo/
-dist/
-coverage/
 
-##### Framework outputs #####
+# Dependencies & build artifacts
+node_modules/
+dist/
 .next/
 out/
-.vercel/
 
-##### Env + secrets #####
+# Environment / secrets
 .env
 .env.*
-apps/*/.env
-apps/*/.env.*
+apps/web/.env.local
+apps/worker/.env
 
-##### Logs + misc #####
-*.log
-*.log.*
-*.tsbuildinfo
-.DS_Store
-
-##### Supabase local cache #####
-supabase/.branches/
-supabase/.temp/
-
-##### Local debug artifacts #####
+# Logs & local only files
 install-error.json
+*.log
 
-
-
+# OS / editor junk
+.DS_Store
+Thumbs.db

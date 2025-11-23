@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireAccountIdFromRequest } from "@/lib/auth";
 import { getDbPool } from "@/lib/db";
+import { META_JOB_TYPES, isMetaJobType, metaJobsEnabled } from "@/lib/job-config";
 
-const SUPPORTED_JOB_TYPES = ["shopify_7d_fill", "shopify_fresh", "meta_7d_fill", "meta_fresh"] as const;
+const SHOPIFY_JOB_TYPES = ["shopify_7d_fill", "shopify_fresh"] as const;
+const SUPPORTED_JOB_TYPES = [...SHOPIFY_JOB_TYPES, ...META_JOB_TYPES] as const;
 type SupportedJobType = (typeof SUPPORTED_JOB_TYPES)[number];
-const SUPPORTED_JOB_TYPE_SET = new Set<SupportedJobType>(SUPPORTED_JOB_TYPES);
+const SUPPORTED_JOB_TYPE_SET = new Set<string>(SUPPORTED_JOB_TYPES as readonly string[]);
 
 interface ManualSyncRequestBody {
   integration_id?: string;
@@ -27,7 +29,7 @@ function inferIntegrationType(jobType: string): "shopify" | "meta" | null {
 }
 
 function isSupportedJobType(jobType: string): jobType is SupportedJobType {
-  return SUPPORTED_JOB_TYPE_SET.has(jobType as SupportedJobType);
+  return SUPPORTED_JOB_TYPE_SET.has(jobType);
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -38,6 +40,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body = (await request.json()) as ManualSyncRequestBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  if (isMetaJobType(jobType) && !metaJobsEnabled()) {
+    return NextResponse.json(
+      {
+        error:
+          "Meta sync jobs are disabled for this environment. Set META_JOBS_ENABLED=true to enable them.",
+      },
+      { status: 400 }
+    );
   }
 
   const integrationId = normalizeString(body.integration_id);
@@ -90,6 +102,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   );
 
   const row = enqueueResult.rows[0];
+  const responseMessage = isMetaJobType(jobType)
+    ? "Meta sync enqueued"
+    : "Sync enqueued";
+
+  console.log(
+    `[manual-sync] ${jobType} queued for integration=${integrationId} account=${accountId}`
+  );
 
   return NextResponse.json(
     {
@@ -97,6 +116,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       jobType: row.job_type,
       status: row.status,
       trigger: row.trigger,
+      message: responseMessage,
     },
     { status: 202, headers: { "Cache-Control": "no-store" } }
   );
