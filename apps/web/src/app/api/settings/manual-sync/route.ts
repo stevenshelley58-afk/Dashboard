@@ -42,16 +42,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  if (isMetaJobType(jobType) && !metaJobsEnabled()) {
-    return NextResponse.json(
-      {
-        error:
-          "Meta sync jobs are disabled for this environment. Set META_JOBS_ENABLED=true to enable them.",
-      },
-      { status: 400 }
-    );
-  }
-
   const integrationId = normalizeString(body.integration_id);
   const jobType = normalizeString(body.job_type);
 
@@ -60,6 +50,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
   if (!isSupportedJobType(jobType)) {
     return NextResponse.json({ error: "job_type is invalid or unsupported." }, { status: 400 });
+  }
+
+  if (isMetaJobType(jobType) && !metaJobsEnabled()) {
+    return NextResponse.json(
+      {
+        error:
+          "Meta sync jobs are disabled for this environment. Set META_JOBS_ENABLED=true to enable them.",
+      },
+      { status: 400 }
+    );
   }
 
   const pool = getDbPool();
