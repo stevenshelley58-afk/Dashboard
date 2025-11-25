@@ -92,9 +92,9 @@ export async function GET() {
           status,
           trigger,
           started_at::text,
-          completed_at::text,
+          finished_at::text as completed_at,
           error_message,
-          rows_processed,
+          (stats->>'rows_processed')::int as rows_processed,
           created_at::text
         FROM sync_runs
         WHERE integration_id = ANY($1)
