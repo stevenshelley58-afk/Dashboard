@@ -79,30 +79,41 @@ function computePeriodRange(preset: HomePeriodPreset): HomePeriodRange {
   };
 }
 
-async function fetchLatestKpis(accountId: string, preset: HomePeriodPreset): Promise<HomeKpis> {
+async function fetchLatestKpis(
+  accountId: string,
+  preset: HomePeriodPreset,
+  range: HomePeriodRange
+): Promise<HomeKpis> {
   const pool = getDbPool();
+  
+  // Calculate KPIs directly from daily_summary for the period
   const result = await pool.query<{
-    as_of: string | null;
     revenue_net: number | null;
     meta_spend: number | null;
     mer: number | null;
     roas: number | null;
     aov: number | null;
+    orders: number | null;
   }>(
     `
-      SELECT as_of,
-             revenue_net,
-             meta_spend,
-             mer,
-             roas,
-             aov
-      FROM latest_kpis
+      SELECT 
+        SUM(revenue_net) AS revenue_net,
+        SUM(meta_spend) AS meta_spend,
+        CASE 
+          WHEN SUM(meta_spend) > 0 THEN SUM(revenue_net) / SUM(meta_spend)
+          ELSE NULL
+        END AS mer,
+        NULL AS roas, -- ROAS would come from Meta data
+        CASE 
+          WHEN SUM(orders) > 0 THEN SUM(revenue_net) / SUM(orders)
+          ELSE 0
+        END AS aov,
+        SUM(orders) AS orders
+      FROM daily_summary
       WHERE account_id = $1
-        AND period = $2
-      ORDER BY as_of DESC NULLS LAST
-      LIMIT 1
+        AND date BETWEEN $2::date AND $3::date
     `,
-    [accountId, preset]
+    [accountId, range.from, range.to]
   );
 
   if (result.rowCount === 0) {
@@ -112,6 +123,7 @@ async function fetchLatestKpis(accountId: string, preset: HomePeriodPreset): Pro
       mer: 0,
       roas: 0,
       aov: 0,
+      orders: 0,
       as_of: null,
     };
   }
@@ -123,7 +135,8 @@ async function fetchLatestKpis(accountId: string, preset: HomePeriodPreset): Pro
     mer: clampNumber(row.mer),
     roas: clampNumber(row.roas),
     aov: clampNumber(row.aov),
-    as_of: row.as_of,
+    orders: clampNumber(row.orders),
+    as_of: new Date().toISOString(),
   };
 }
 
@@ -255,7 +268,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const range = computePeriodRange(preset);
 
     const [kpis, rows, currency] = await Promise.all([
-      fetchLatestKpis(accountId, preset),
+      fetchLatestKpis(accountId, preset, range),
       fetchDailySummary({ accountId, from: range.from, to: range.to }),
       resolveAccountCurrency(accountId),
     ]);

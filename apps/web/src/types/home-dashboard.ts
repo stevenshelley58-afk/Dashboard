@@ -12,6 +12,7 @@ export interface HomeKpis {
   mer: number;
   roas: number;
   aov: number;
+  orders: number;
   as_of: string | null;
 }
 
