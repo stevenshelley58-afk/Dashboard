@@ -4,12 +4,6 @@ declare global {
   var _webDbPool: Pool | undefined;
 }
 
-import path from 'path';
-import dotenv from 'dotenv';
-
-const envPath = path.resolve(process.cwd(), '.env.local');
-dotenv.config({ path: envPath, override: true });
-
 const globalForDb = globalThis as typeof globalThis & {
   _webDbPool?: Pool;
 };
@@ -32,6 +26,7 @@ function getPool(): Pool {
     connectionString,
     max: 5,
     idleTimeoutMillis: 10_000,
+    ssl: { rejectUnauthorized: false }, // Required for Supabase
   });
 
   // Always cache pool to prevent connection exhaustion in serverless environments

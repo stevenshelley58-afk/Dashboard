@@ -19,6 +19,7 @@ function ensurePool(): Pool {
     connectionString,
     max: 5,
     idleTimeoutMillis: 10_000,
+    ssl: { rejectUnauthorized: false }, // Required for Supabase
   });
 
   return pool;
