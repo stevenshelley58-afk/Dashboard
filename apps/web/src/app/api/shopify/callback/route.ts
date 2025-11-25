@@ -21,8 +21,8 @@ async function enforceAccountCurrency(
     return;
   }
 
-  const result = await client.query<{ currency: string | null }>(
-    `SELECT currency FROM accounts WHERE account_id = $1 FOR UPDATE`,
+  const result = await client.query<{ currency: string | null; currency_locked_by: string | null }>(
+    `SELECT currency, currency_locked_by FROM accounts WHERE account_id = $1 FOR UPDATE`,
     [accountId]
   );
 
@@ -31,25 +31,39 @@ async function enforceAccountCurrency(
   }
 
   const existingCurrency = result.rows[0].currency;
+  const lockedBy = result.rows[0].currency_locked_by;
 
-  if (existingCurrency && existingCurrency !== currency) {
-    throw new Error(
-      `Account currency ${existingCurrency} does not match Shopify currency ${currency}.`
-    );
-  }
-
-  if (!existingCurrency) {
+  // If no currency set, or currency matches, just update
+  if (!existingCurrency || existingCurrency === currency) {
     await client.query(
       `
         UPDATE accounts
         SET currency = $2,
-            currency_locked_at = NOW(),
-            currency_locked_by = 'shopify'
+            currency_locked_at = COALESCE(currency_locked_at, NOW()),
+            currency_locked_by = COALESCE(currency_locked_by, 'shopify')
         WHERE account_id = $1
       `,
       [accountId, currency]
     );
+    return;
   }
+
+  // Currency mismatch - but don't hard fail, just update it
+  // Log for debugging but proceed with the new currency
+  console.warn(
+    `Currency mismatch: Account had ${existingCurrency} (locked by ${lockedBy}), updating to ${currency} from Shopify`
+  );
+  
+  await client.query(
+    `
+      UPDATE accounts
+      SET currency = $2,
+          currency_locked_at = NOW(),
+          currency_locked_by = 'shopify'
+      WHERE account_id = $1
+    `,
+    [accountId, currency]
+  );
 }
 
 async function upsertShop(
