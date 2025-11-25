@@ -80,9 +80,10 @@ function formatRelativeTime(dateStr: string | null | undefined): string {
 
 function StatusBadge({ status }: { status: string }) {
   const getClass = () => {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case "connected":
       case "completed":
+      case "success":
       case "active":
         return "status-connected";
       case "error":
@@ -97,9 +98,11 @@ function StatusBadge({ status }: { status: string }) {
     }
   };
   
+  const displayStatus = status === "success" ? "completed" : status;
+  
   return (
     <span className={`status-badge ${getClass()}`}>
-      {status}
+      {displayStatus}
     </span>
   );
 }
@@ -113,7 +116,7 @@ function IntegrationCard({ detail, onSync, syncing }: {
   const isShopify = integration.type === "shopify";
   const [expanded, setExpanded] = useState(false);
   
-  const lastSuccessfulSync = recentSyncs.find(s => s.status === "completed");
+  const lastSuccessfulSync = recentSyncs.find(s => s.status === "success" || s.status === "completed");
   const lastFailedSync = recentSyncs.find(s => s.status === "failed" || s.status === "error");
   
   return (
@@ -430,7 +433,18 @@ export default function SettingsClient() {
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    
+    // Auto-refresh every 3 seconds if there are running/queued jobs
+    const interval = setInterval(() => {
+      if (data?.integrations.some(i => 
+        i.recentSyncs.some(s => s.status === "queued" || s.status === "running")
+      )) {
+        fetchData();
+      }
+    }, 3000);
+    
+    return () => clearInterval(interval);
+  }, [fetchData, data]);
 
   const handleSync = async (integrationId: string, jobType: string) => {
     setSyncing(integrationId);
