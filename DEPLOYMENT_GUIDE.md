@@ -40,10 +40,21 @@
    ```
 
 4. **Set Environment Variables in Vercel Dashboard**:
-   Go to your project settings on vercel.com and add these environment variables:
    
+   **Option A: Use Supabase-Vercel Integration (RECOMMENDED)**
+   - Go to Vercel → Settings → Integrations → Add Supabase
+   - The integration automatically sets `POSTGRES_URL` with correct pooler settings
+   - No need to manually configure DATABASE_URL!
+   
+   **Option B: Manual Setup**
+   Go to your project settings on vercel.com and add these environment variables:
    ```
-   DATABASE_URL = postgresql://postgres:[PASSWORD]@db.cljpiaygjtspppsvntnu.supabase.co:6543/postgres?pgbouncer=true
+   DATABASE_URL = postgresql://postgres:[PASSWORD]@db.cljpiaygjtspppsvntnu.supabase.co:6543/postgres
+   ```
+   Use port 6543 (transaction pooler) for Vercel serverless.
+
+   **Additional variables (both options):**
+   ```
    JWT_SECRET = [GENERATE-WITH: openssl rand -hex 32]
    SHOPIFY_API_KEY = b2e5f947f63da4b978ff0cea2765d91d
    SHOPIFY_API_SECRET = [YOUR-SHOPIFY-API-SECRET]
@@ -52,8 +63,6 @@
    LOCAL_DEV_ACCOUNT_ID = 079ed5c0-4dfd-4feb-aa91-0c4017a7be2f
    META_JOBS_ENABLED = true
    ```
-
-   **Important**: Use port 6543 (transaction pooler) for Vercel, not 5432!
 
 ### 2. Railway Deployment (Worker)
 

@@ -19,11 +19,12 @@ function getPool(): Pool {
     return globalForDb._webDbPool;
   }
 
-  const connectionString = process.env.DATABASE_URL;
+  // Support both Supabase-Vercel integration (POSTGRES_URL) and manual config (DATABASE_URL)
+  const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
 
   if (!connectionString) {
     throw new Error(
-      'DATABASE_URL is not set. Ensure the environment variable is configured.'
+      'Database connection not configured. Set POSTGRES_URL (via Supabase integration) or DATABASE_URL.'
     );
   }
 
