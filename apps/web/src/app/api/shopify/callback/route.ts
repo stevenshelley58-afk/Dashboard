@@ -215,84 +215,95 @@ async function persistShopifyInstall(params: {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    const params = request.nextUrl.searchParams;
-    const code = params.get("code");
-    const hmac = params.get("hmac");
-    const shopParam = params.get("shop");
-    const stateParam = params.get("state");
+  const params = request.nextUrl.searchParams;
+  const code = params.get("code");
+  const hmac = params.get("hmac");
+  const shopParam = params.get("shop");
+  const stateParam = params.get("state");
 
-    if (!code || !hmac || !shopParam || !stateParam) {
-      return NextResponse.json(
-        { error: "Missing Shopify OAuth parameters." },
-        { status: 400 }
-      );
-    }
-
-    if (!verifyShopifyOAuthHmac(params)) {
-      return NextResponse.json(
-        { error: "Shopify callback HMAC verification failed." },
-        { status: 400 }
-      );
-    }
-
-    const normalizedShop = normalizeShopDomain(shopParam);
-    const statePayload = parseShopifyStateToken(stateParam);
-
-    if (!statePayload || statePayload.shopDomain !== normalizedShop) {
-      return NextResponse.json(
-        { error: "Invalid or expired Shopify OAuth state." },
-        { status: 400 }
-      );
-    }
-
-    const { accessToken } = await exchangeCodeForAccessToken(
-      normalizedShop,
-      code
+  // Step 1: Check required params
+  if (!code || !hmac || !shopParam || !stateParam) {
+    return NextResponse.json(
+      { error: "Missing Shopify OAuth parameters.", step: "params" },
+      { status: 400 }
     );
-    const shopDetails = await fetchShopDetails(normalizedShop, accessToken);
+  }
 
+  // Step 2: Verify HMAC
+  if (!verifyShopifyOAuthHmac(params)) {
+    return NextResponse.json(
+      { error: "Shopify callback HMAC verification failed.", step: "hmac" },
+      { status: 400 }
+    );
+  }
+
+  // Step 3: Parse state
+  const normalizedShop = normalizeShopDomain(shopParam);
+  const statePayload = parseShopifyStateToken(stateParam);
+
+  if (!statePayload) {
+    return NextResponse.json(
+      { error: "Invalid or expired OAuth state token.", step: "state_parse" },
+      { status: 400 }
+    );
+  }
+
+  if (statePayload.shopDomain !== normalizedShop) {
+    return NextResponse.json(
+      { error: "Shop domain mismatch in state.", step: "state_shop", expected: statePayload.shopDomain, got: normalizedShop },
+      { status: 400 }
+    );
+  }
+
+  // Step 4: Exchange code for token
+  let accessToken: string;
+  try {
+    const result = await exchangeCodeForAccessToken(normalizedShop, code);
+    accessToken = result.accessToken;
+  } catch (error) {
+    console.error("Token exchange failed", error);
+    return NextResponse.json(
+      { error: "Failed to exchange code for access token.", step: "token_exchange", detail: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
+    );
+  }
+
+  // Step 5: Fetch shop details
+  let shopDetails: ShopifyShopDetails;
+  try {
+    shopDetails = await fetchShopDetails(normalizedShop, accessToken);
+  } catch (error) {
+    console.error("Shop details fetch failed", error);
+    return NextResponse.json(
+      { error: "Failed to fetch shop details from Shopify.", step: "shop_details", detail: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
+    );
+  }
+
+  // Step 6: Persist to database
+  try {
     await persistShopifyInstall({
       accountId: statePayload.accountId,
       shopDetails,
       accessToken,
     });
-
-    try {
-      await ensureShopifyWebhooks(normalizedShop, accessToken);
-    } catch (error) {
-      // For local dev, webhooks might fail if not tunneled. 
-      // We log it but don't fail the installation.
-      console.warn("Failed to register Shopify webhooks (non-fatal)", error);
-      // Do NOT update status to error. Keep it connected.
-    }
-
-    const redirectTarget = getAppSettingsUrl("?shopify=connected");
-    return NextResponse.redirect(redirectTarget);
   } catch (error) {
-    console.error("Shopify OAuth callback failed", error);
-    const errorLog = {
-      timestamp: new Date().toISOString(),
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      errorType: error?.constructor?.name,
-      fullError: JSON.stringify(error, Object.getOwnPropertyNames(error))
-    };
-
-    try {
-      const fs = await import('fs');
-      // Use a hardcoded path to be sure
-      const logPath = 'c:\\Dashboard\\install-error.json';
-      fs.writeFileSync(logPath, JSON.stringify(errorLog, null, 2));
-      console.log("Error log written to", logPath);
-    } catch (fsError) {
-      console.error("Failed to write error log", fsError);
-    }
-
+    console.error("Database persist failed", error);
     return NextResponse.json(
-      { error: "Unable to complete Shopify installation." },
+      { error: "Failed to save Shopify connection to database.", step: "database", detail: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
+
+  // Step 7: Register webhooks (non-fatal)
+  try {
+    await ensureShopifyWebhooks(normalizedShop, accessToken);
+  } catch (error) {
+    console.warn("Failed to register Shopify webhooks (non-fatal)", error);
+  }
+
+  // Success - redirect to settings
+  const redirectTarget = getAppSettingsUrl("?shopify=connected");
+  return NextResponse.redirect(redirectTarget);
 }
 

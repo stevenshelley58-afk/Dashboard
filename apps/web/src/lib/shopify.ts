@@ -29,12 +29,17 @@ function requiredEnv(name: string): string {
 }
 
 function getAppBaseUrl(): string {
-  // Check explicit config first, then Vercel's automatic URL
+  // Check explicit config first
   if (process.env.SHOPIFY_APP_URL) {
     return process.env.SHOPIFY_APP_URL;
   }
   
-  // Vercel provides VERCEL_URL automatically (without protocol)
+  // Vercel production URL (stable, doesn't change per deployment)
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
+  
+  // Fallback to deployment URL (changes per deploy - not ideal for OAuth)
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
