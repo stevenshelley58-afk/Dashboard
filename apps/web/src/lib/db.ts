@@ -14,7 +14,7 @@ function getPool(): Pool {
   }
 
   // Support both Supabase-Vercel integration (POSTGRES_URL) and manual config (DATABASE_URL)
-  const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+  let connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
 
   if (!connectionString) {
     throw new Error(
@@ -22,11 +22,23 @@ function getPool(): Pool {
     );
   }
 
+  // Remove any sslmode from connection string - we'll handle SSL via Pool config
+  try {
+    const url = new URL(connectionString);
+    url.searchParams.delete('sslmode');
+    connectionString = url.toString();
+  } catch {
+    // If URL parsing fails, continue with original string
+  }
+
   const pool = new Pool({
     connectionString,
     max: 5,
     idleTimeoutMillis: 10_000,
-    ssl: { rejectUnauthorized: false }, // Required for Supabase
+    // CRITICAL: Supabase uses SSL but their cert chain needs this setting
+    ssl: {
+      rejectUnauthorized: false,
+    },
   });
 
   // Always cache pool to prevent connection exhaustion in serverless environments
