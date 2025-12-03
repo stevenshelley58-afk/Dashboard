@@ -30,6 +30,25 @@ interface ShopifyMoney {
   currencyCode?: string | null;
 }
 
+interface ShopifyLineItemNode {
+  id: string;
+  title: string;
+  variantTitle: string | null;
+  sku: string | null;
+  quantity: number;
+  product?: {
+    id: string;
+    title: string;
+  } | null;
+  variant?: {
+    id: string;
+    title: string | null;
+    sku: string | null;
+  } | null;
+  originalUnitPriceSet?: { shopMoney?: ShopifyMoney | null } | null;
+  discountedUnitPriceSet?: { shopMoney?: ShopifyMoney | null } | null;
+}
+
 interface ShopifyOrderNode {
   id: string;
   name: string | null;
@@ -43,6 +62,11 @@ interface ShopifyOrderNode {
   totalPriceSet?: { shopMoney?: ShopifyMoney | null } | null;
   subtotalPriceSet?: { shopMoney?: ShopifyMoney | null } | null;
   totalRefundedSet?: { shopMoney?: ShopifyMoney | null } | null;
+  lineItems?: {
+    edges: Array<{
+      node: ShopifyLineItemNode;
+    }>;
+  } | null;
 }
 
 interface ShopifyOrdersResponse {
@@ -70,6 +94,17 @@ interface GraphqlResponse<T> {
   throttleStatus?: ShopifyThrottleStatus;
 }
 
+interface NormalizedLineItem {
+  shopifyProductId: string | null;
+  shopifyVariantId: string | null;
+  productTitle: string;
+  variantTitle: string | null;
+  sku: string | null;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
 interface NormalizedShopifyOrder {
   shopifyOrderId: string;
   orderName: string;
@@ -81,6 +116,7 @@ interface NormalizedShopifyOrder {
   totalNet: number;
   refundTotal: number;
   currencyCode: string | null;
+  lineItems: NormalizedLineItem[];
   raw: ShopifyOrderNode;
 }
 
@@ -115,6 +151,32 @@ function normalizeOrderStatus(node: ShopifyOrderNode): string | null {
   return segments.join(" / ");
 }
 
+function extractGid(gid: string | null | undefined, type: string): string | null {
+  if (!gid) return null;
+  const match = gid.match(new RegExp(`gid://shopify/${type}/(\\d+)`));
+  return match ? match[1] : gid;
+}
+
+function normalizeLineItems(node: ShopifyOrderNode): NormalizedLineItem[] {
+  const edges = node.lineItems?.edges ?? [];
+  return edges.map(({ node: item }) => {
+    const unitPrice = parseMoney(item.discountedUnitPriceSet?.shopMoney) ||
+                      parseMoney(item.originalUnitPriceSet?.shopMoney);
+    const lineTotal = unitPrice * item.quantity;
+
+    return {
+      shopifyProductId: extractGid(item.product?.id, 'Product'),
+      shopifyVariantId: extractGid(item.variant?.id, 'ProductVariant'),
+      productTitle: item.product?.title ?? item.title ?? 'Unknown Product',
+      variantTitle: item.variant?.title ?? item.variantTitle,
+      sku: item.variant?.sku ?? item.sku,
+      quantity: item.quantity,
+      unitPrice,
+      lineTotal,
+    };
+  });
+}
+
 function normalizeOrder(node: ShopifyOrderNode): NormalizedShopifyOrder {
   const currencyCode =
     node.currencyCode ??
@@ -144,6 +206,7 @@ function normalizeOrder(node: ShopifyOrderNode): NormalizedShopifyOrder {
     totalNet: net,
     refundTotal: refunds,
     currencyCode,
+    lineItems: normalizeLineItems(node),
     raw: node,
   };
 }
@@ -276,6 +339,38 @@ async function fetchShopifyOrders(
                   shopMoney {
                     amount
                     currencyCode
+                  }
+                }
+                lineItems(first: 50) {
+                  edges {
+                    node {
+                      id
+                      title
+                      variantTitle
+                      sku
+                      quantity
+                      product {
+                        id
+                        title
+                      }
+                      variant {
+                        id
+                        title
+                        sku
+                      }
+                      originalUnitPriceSet {
+                        shopMoney {
+                          amount
+                          currencyCode
+                        }
+                      }
+                      discountedUnitPriceSet {
+                        shopMoney {
+                          amount
+                          currencyCode
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -518,6 +613,152 @@ async function replaceFactOrders(
   );
 }
 
+async function replaceFactOrderLines(
+  client: PoolClient,
+  integration: ShopifyIntegrationDetails,
+  orders: NormalizedShopifyOrder[]
+): Promise<void> {
+  if (orders.length === 0) {
+    return;
+  }
+
+  // Collect all line items from all orders
+  const allLineItems: Array<{
+    orderDate: string;
+    orderNumber: string;
+    currencyCode: string | null;
+    item: NormalizedLineItem;
+  }> = [];
+
+  for (const order of orders) {
+    for (const item of order.lineItems) {
+      allLineItems.push({
+        orderDate: order.orderDate,
+        orderNumber: order.orderName,
+        currencyCode: order.currencyCode,
+        item,
+      });
+    }
+  }
+
+  if (allLineItems.length === 0) {
+    return;
+  }
+
+  // Delete existing line items for these orders
+  const orderNames = orders.map((order) => order.orderName);
+  await client.query(
+    `
+      DELETE FROM fact_order_lines
+      WHERE integration_id = $1
+        AND order_number = ANY($2::text[])
+    `,
+    [integration.integrationId, orderNames]
+  );
+
+  // Insert new line items
+  const columns = 12;
+  const values: unknown[] = [];
+  const placeholders = buildValuesPlaceholders(allLineItems.length, columns);
+
+  for (const { orderDate, orderNumber, currencyCode, item } of allLineItems) {
+    values.push(
+      integration.integrationId,
+      integration.shopId,
+      integration.accountId,
+      orderDate,
+      orderNumber,
+      item.shopifyProductId,
+      item.shopifyVariantId,
+      item.productTitle,
+      item.variantTitle,
+      item.sku,
+      item.quantity,
+      item.unitPrice,
+      item.lineTotal,
+      currencyCode ?? integration.currency ?? null
+    );
+  }
+
+  // Adjust columns count to match actual values
+  const actualColumns = 14;
+  const actualPlaceholders = buildValuesPlaceholders(allLineItems.length, actualColumns);
+
+  await client.query(
+    `
+      INSERT INTO fact_order_lines (
+        integration_id,
+        shop_id,
+        account_id,
+        order_date,
+        order_number,
+        shopify_product_id,
+        shopify_variant_id,
+        product_title,
+        variant_title,
+        sku,
+        quantity,
+        unit_price,
+        line_total,
+        currency
+      )
+      VALUES ${actualPlaceholders}
+    `,
+    values
+  );
+}
+
+async function rebuildDailyProductMetrics(
+  client: PoolClient,
+  integration: ShopifyIntegrationDetails,
+  dates: string[]
+): Promise<void> {
+  if (dates.length === 0) {
+    return;
+  }
+
+  // Delete existing product metrics for these dates
+  await client.query(
+    `
+      DELETE FROM daily_product_metrics
+      WHERE shop_id = $1
+        AND date = ANY($2::date[])
+    `,
+    [integration.shopId, dates]
+  );
+
+  // Rebuild from fact_order_lines
+  await client.query(
+    `
+      INSERT INTO daily_product_metrics (
+        shop_id,
+        account_id,
+        date,
+        shopify_product_id,
+        product_title,
+        quantity_sold,
+        revenue,
+        orders_count
+      )
+      SELECT
+        $1::uuid AS shop_id,
+        $2::uuid AS account_id,
+        f.order_date::date AS date,
+        COALESCE(f.shopify_product_id, 'unknown') AS shopify_product_id,
+        MAX(f.product_title) AS product_title,
+        SUM(f.quantity) AS quantity_sold,
+        SUM(f.line_total) AS revenue,
+        COUNT(DISTINCT f.order_number) AS orders_count
+      FROM fact_order_lines f
+      WHERE f.shop_id = $1
+        AND f.account_id = $2
+        AND f.order_date = ANY($3::date[])
+      GROUP BY f.order_date, COALESCE(f.shopify_product_id, 'unknown')
+    `,
+    [integration.shopId, integration.accountId, dates]
+  );
+}
+
 async function rebuildDailyShopifyMetrics(
   client: PoolClient,
   integration: ShopifyIntegrationDetails,
@@ -660,7 +901,9 @@ async function persistOrdersAndAggregates(
     if (orders.length > 0) {
       await upsertShopifyRaw(client, integration.integrationId, orders);
       await replaceFactOrders(client, integration, orders);
+      await replaceFactOrderLines(client, integration, orders);
       await rebuildDailyShopifyMetrics(client, integration, dates);
+      await rebuildDailyProductMetrics(client, integration, dates);
       await rebuildDailySummary(client, integration.accountId, dates);
     }
 

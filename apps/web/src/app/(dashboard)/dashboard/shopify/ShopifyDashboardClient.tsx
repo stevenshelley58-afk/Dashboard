@@ -259,23 +259,31 @@ export default function ShopifyDashboardClient() {
         const json = await res.json();
         const summary = json.summary ?? {};
         const timeseries = json.timeseries ?? [];
-        
+        const topProductsRaw = json.topProducts ?? [];
+
         // Convert timeseries to chart format
         const chartData = timeseries.map((point: any) => ({
           date: point.date,
           revenue: point.revenue_net ?? 0,
           orders: point.orders ?? 0,
         }));
-        
+
+        // Convert top products from API response
+        const topProducts = topProductsRaw.map((p: any) => ({
+          name: p.product_title ?? 'Unknown Product',
+          revenue: p.revenue ?? 0,
+          orders: p.orders_count ?? 0,
+        }));
+
         setData({
           metrics: {
             total_sales: summary.revenue_net ?? 0,
             total_orders: summary.orders ?? 0,
             aov: summary.aov ?? 0,
-            conversion_rate: 0, // Not available in current API
+            conversion_rate: 0, // Requires sessions data - see ShopifyQL integration
           },
           timeseries: chartData,
-          topProducts: [], // Not available in current API
+          topProducts,
           currency: json.shop?.currency ?? "AUD",
           hasData: json.meta?.hasData ?? false,
         });

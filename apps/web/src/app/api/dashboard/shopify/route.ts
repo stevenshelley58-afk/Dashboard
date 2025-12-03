@@ -198,6 +198,50 @@ async function fetchRecentOrders(params: {
   }));
 }
 
+interface TopProduct {
+  product_id: string;
+  product_title: string;
+  quantity_sold: number;
+  revenue: number;
+  orders_count: number;
+}
+
+async function fetchTopProducts(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+  limit?: number;
+}): Promise<TopProduct[]> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        shopify_product_id AS product_id,
+        product_title,
+        SUM(quantity_sold) AS quantity_sold,
+        SUM(revenue) AS revenue,
+        SUM(orders_count) AS orders_count
+      FROM daily_product_metrics
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+      GROUP BY shopify_product_id, product_title
+      ORDER BY SUM(revenue) DESC
+      LIMIT $5
+    `,
+    [params.accountId, params.shopId, params.from, params.to, params.limit ?? 10]
+  );
+
+  return result.rows.map((row) => ({
+    product_id: row.product_id,
+    product_title: row.product_title,
+    quantity_sold: toNumber(row.quantity_sold),
+    revenue: toNumber(row.revenue),
+    orders_count: toNumber(row.orders_count),
+  }));
+}
+
 function buildSummary(series: ShopifyTimeseriesPoint[]): ShopifyDashboardSummary {
   const totals = series.reduce(
     (acc, row) => {
@@ -228,19 +272,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const shop = await resolveShopContext(accountId, shopIdParam);
 
-    const [timeseries, recentOrders] = await Promise.all([
+    const [timeseries, recentOrders, topProducts] = await Promise.all([
       fetchDailyMetrics({ accountId, shopId: shop.shop_id, ...range }),
       fetchRecentOrders({ accountId, shopId: shop.shop_id, ...range }),
+      fetchTopProducts({ accountId, shopId: shop.shop_id, ...range, limit: 10 }),
     ]);
 
     const summary = buildSummary(timeseries);
 
-    const payload: ShopifyDashboardResponse = {
+    const payload: ShopifyDashboardResponse & { topProducts: TopProduct[] } = {
       shop,
       range,
       summary,
       timeseries,
       recentOrders,
+      topProducts,
       meta: {
         hasData: timeseries.length > 0 || recentOrders.length > 0,
       },
