@@ -4,29 +4,80 @@ import { useEffect, useState } from "react";
 
 type PeriodPreset = "today" | "yesterday" | "last_7" | "this_week" | "last_30";
 
-interface ShopifyMetrics {
-  total_sales: number;
-  total_orders: number;
-  aov: number;
-  conversion_rate: number;
-}
-
-interface TimeseriesPoint {
+interface EnhancedTimeseries {
   date: string;
-  revenue: number;
   orders: number;
+  revenue_gross: number;
+  revenue_net: number;
+  refunds: number;
+  aov: number | null;
+  total_discounts: number;
+  total_shipping: number;
+  total_tax: number;
+  new_customers: number;
+  returning_customers: number;
+  returning_customer_rate: number;
 }
 
 interface TopProduct {
-  name: string;
+  product_id: string;
+  product_title: string;
+  quantity_sold: number;
   revenue: number;
+  orders_count: number;
+}
+
+interface SalesByChannel {
+  sales_channel: string;
   orders: number;
+  revenue_net: number;
+  aov: number;
+}
+
+interface SalesByLocation {
+  country: string;
+  region: string | null;
+  orders: number;
+  revenue_net: number;
+  new_customers: number;
+}
+
+interface HourlySales {
+  hour: number;
+  orders: number;
+  revenue_net: number;
+}
+
+interface CustomerStats {
+  total_customers: number;
+  new_customers: number;
+  returning_customers: number;
+  returning_rate: number;
+  avg_customer_value: number;
+}
+
+interface EnhancedSummary {
+  orders: number;
+  revenue_gross: number;
+  revenue_net: number;
+  refunds: number;
+  aov: number;
+  total_discounts: number;
+  total_shipping: number;
+  total_tax: number;
+  new_customers: number;
+  returning_customers: number;
+  returning_customer_rate: number;
 }
 
 interface DashboardData {
-  metrics: ShopifyMetrics;
-  timeseries: TimeseriesPoint[];
+  summary: EnhancedSummary;
+  timeseries: EnhancedTimeseries[];
   topProducts: TopProduct[];
+  salesByChannel: SalesByChannel[];
+  salesByLocation: SalesByLocation[];
+  hourlySales: HourlySales[];
+  customerStats: CustomerStats;
   currency: string;
   hasData: boolean;
 }
@@ -34,9 +85,9 @@ interface DashboardData {
 const PERIOD_OPTIONS: Array<{ id: PeriodPreset; label: string }> = [
   { id: "today", label: "Today" },
   { id: "yesterday", label: "Yesterday" },
-  { id: "last_7", label: "Last 7" },
+  { id: "last_7", label: "Last 7 Days" },
   { id: "this_week", label: "This Week" },
-  { id: "last_30", label: "Last 30" },
+  { id: "last_30", label: "Last 30 Days" },
 ];
 
 function formatCurrency(value: number, currency: string): string {
@@ -53,11 +104,17 @@ function formatNumber(value: number): string {
 }
 
 function formatPercent(value: number): string {
-  return `${value.toFixed(1)}%`;
+  return `${(value * 100).toFixed(1)}%`;
 }
 
-// Simple SVG Line Chart
-function LineChart({ data, currency }: { data: TimeseriesPoint[]; currency: string }) {
+function formatHour(hour: number): string {
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const h = hour % 12 || 12;
+  return `${h}${ampm}`;
+}
+
+// Revenue Over Time Chart
+function RevenueChart({ data, currency }: { data: EnhancedTimeseries[]; currency: string }) {
   if (data.length === 0) {
     return (
       <div className="chart-placeholder">
@@ -70,21 +127,19 @@ function LineChart({ data, currency }: { data: TimeseriesPoint[]; currency: stri
   const height = 200;
   const padding = 40;
 
-  const values = data.map((d) => d.revenue);
+  const values = data.map((d) => d.revenue_net);
   const maxValue = Math.max(...values, 1);
-  const minValue = 0;
 
   const points = data.map((d, i) => {
     const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
-    const y = height - padding - ((d.revenue - minValue) / (maxValue - minValue || 1)) * (height - padding * 2);
-    return { x, y, value: d.revenue, date: d.date };
+    const y = height - padding - (d.revenue_net / maxValue) * (height - padding * 2);
+    return { x, y, value: d.revenue_net, date: d.date };
   });
 
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
-      {/* Grid lines */}
       {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
         const y = height - padding - ratio * (height - padding * 2);
         return (
@@ -99,8 +154,6 @@ function LineChart({ data, currency }: { data: TimeseriesPoint[]; currency: stri
           />
         );
       })}
-
-      {/* Line */}
       <path
         d={pathD}
         fill="none"
@@ -109,23 +162,17 @@ function LineChart({ data, currency }: { data: TimeseriesPoint[]; currency: stri
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-
-      {/* Area fill */}
       <path
         d={`${pathD} L ${points[points.length - 1]?.x || padding} ${height - padding} L ${padding} ${height - padding} Z`}
-        fill="url(#gradient)"
+        fill="url(#revenueGradient)"
         opacity="0.1"
       />
-
-      {/* Gradient definition */}
       <defs>
-        <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#4F46E5" />
           <stop offset="100%" stopColor="#4F46E5" stopOpacity="0" />
         </linearGradient>
       </defs>
-
-      {/* Data points */}
       {points.map((p, i) => (
         <circle key={i} cx={p.x} cy={p.y} r="4" fill="#4F46E5" />
       ))}
@@ -133,77 +180,191 @@ function LineChart({ data, currency }: { data: TimeseriesPoint[]; currency: stri
   );
 }
 
-// Dual Line Chart for Orders & Sessions
-function DualLineChart({ data }: { data: TimeseriesPoint[] }) {
+// Orders Over Time Chart
+function OrdersChart({ data }: { data: EnhancedTimeseries[] }) {
   if (data.length === 0) {
-    return (
-      <div className="chart-placeholder">
-        No data available for this period
-      </div>
-    );
+    return <div className="chart-placeholder">No data available</div>;
   }
 
   const width = 400;
   const height = 200;
   const padding = 40;
 
-  const orderValues = data.map((d) => d.orders);
-  const maxOrders = Math.max(...orderValues, 1);
+  const values = data.map((d) => d.orders);
+  const maxValue = Math.max(...values, 1);
 
-  const orderPoints = data.map((d, i) => {
+  const points = data.map((d, i) => {
     const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
-    const y = height - padding - (d.orders / maxOrders) * (height - padding * 2);
+    const y = height - padding - (d.orders / maxValue) * (height - padding * 2);
     return { x, y };
   });
 
-  const ordersPath = orderPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
-      {/* Grid */}
       {[0, 0.5, 1].map((ratio) => {
         const y = height - padding - ratio * (height - padding * 2);
         return (
-          <line
-            key={ratio}
-            x1={padding}
-            y1={y}
-            x2={width - padding}
-            y2={y}
-            stroke="#e2e8f0"
-            strokeDasharray="4"
+          <line key={ratio} x1={padding} y1={y} x2={width - padding} y2={y} stroke="#e2e8f0" strokeDasharray="4" />
+        );
+      })}
+      <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" />
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="3" fill="#3b82f6" />
+      ))}
+    </svg>
+  );
+}
+
+// AOV Trend Chart
+function AOVChart({ data, currency }: { data: EnhancedTimeseries[]; currency: string }) {
+  if (data.length === 0) {
+    return <div className="chart-placeholder">No data available</div>;
+  }
+
+  const width = 400;
+  const height = 200;
+  const padding = 40;
+
+  const values = data.map((d) => d.aov ?? 0);
+  const maxValue = Math.max(...values, 1);
+
+  const points = data.map((d, i) => {
+    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
+    const y = height - padding - ((d.aov ?? 0) / maxValue) * (height - padding * 2);
+    return { x, y };
+  });
+
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
+      {[0, 0.5, 1].map((ratio) => {
+        const y = height - padding - ratio * (height - padding * 2);
+        return (
+          <line key={ratio} x1={padding} y1={y} x2={width - padding} y2={y} stroke="#e2e8f0" strokeDasharray="4" />
+        );
+      })}
+      <path d={pathD} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" />
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="3" fill="#10b981" />
+      ))}
+    </svg>
+  );
+}
+
+// Hourly Sales Bar Chart
+function HourlySalesChart({ data, currency }: { data: HourlySales[]; currency: string }) {
+  if (data.length === 0) {
+    return <div className="chart-placeholder">No hourly data available</div>;
+  }
+
+  const width = 600;
+  const height = 200;
+  const padding = 40;
+  const barWidth = (width - padding * 2) / 24 - 2;
+
+  // Fill in missing hours with 0
+  const hourlyData: HourlySales[] = Array.from({ length: 24 }, (_, i) => {
+    const found = data.find(d => d.hour === i);
+    return found || { hour: i, orders: 0, revenue_net: 0 };
+  });
+
+  const maxValue = Math.max(...hourlyData.map(d => d.revenue_net), 1);
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
+      {hourlyData.map((d, i) => {
+        const barHeight = (d.revenue_net / maxValue) * (height - padding * 2);
+        const x = padding + i * ((width - padding * 2) / 24) + 1;
+        const y = height - padding - barHeight;
+        return (
+          <rect
+            key={i}
+            x={x}
+            y={y}
+            width={barWidth}
+            height={barHeight}
+            fill="#6366f1"
+            rx="2"
           />
         );
       })}
-
-      {/* Orders line */}
-      <path
-        d={ordersPath}
-        fill="none"
-        stroke="#3b82f6"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-
-      {/* Sessions line (simulated as slightly different) */}
-      <path
-        d={orderPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y + 15}`).join(" ")}
-        fill="none"
-        stroke="#10b981"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
+      {/* X axis labels */}
+      {[0, 6, 12, 18, 23].map((hour) => (
+        <text
+          key={hour}
+          x={padding + hour * ((width - padding * 2) / 24) + barWidth / 2}
+          y={height - 10}
+          fontSize="10"
+          textAnchor="middle"
+          fill="#64748b"
+        >
+          {formatHour(hour)}
+        </text>
+      ))}
     </svg>
+  );
+}
+
+// Customer Distribution Pie Chart
+function CustomerPieChart({ newCustomers, returningCustomers }: { newCustomers: number; returningCustomers: number }) {
+  const total = newCustomers + returningCustomers;
+  if (total === 0) {
+    return <div className="chart-placeholder">No customer data</div>;
+  }
+
+  const newPercent = newCustomers / total;
+  const size = 120;
+  const strokeWidth = 20;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
+      <svg width={size} height={size}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="#e2e8f0"
+          strokeWidth={strokeWidth}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="#4F46E5"
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${newPercent * circumference} ${circumference}`}
+          strokeDashoffset={circumference / 4}
+          strokeLinecap="round"
+        />
+      </svg>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+          <span className="legend-dot" style={{ backgroundColor: "#4F46E5" }} />
+          <span>New: {formatNumber(newCustomers)} ({formatPercent(newPercent)})</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span className="legend-dot" style={{ backgroundColor: "#e2e8f0" }} />
+          <span>Returning: {formatNumber(returningCustomers)} ({formatPercent(1 - newPercent)})</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
 function periodToDateRange(period: PeriodPreset): { from: string; to: string } {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
-  
+
   const to = new Date(today);
   let from = new Date(today);
-  
+
   switch (period) {
     case "today":
       from = new Date(today);
@@ -217,7 +378,6 @@ function periodToDateRange(period: PeriodPreset): { from: string; to: string } {
       from.setUTCDate(from.getUTCDate() - 6);
       break;
     case "this_week":
-      // Monday to today
       const dayOfWeek = today.getUTCDay();
       const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
       from.setUTCDate(from.getUTCDate() - diff);
@@ -226,7 +386,7 @@ function periodToDateRange(period: PeriodPreset): { from: string; to: string } {
       from.setUTCDate(from.getUTCDate() - 29);
       break;
   }
-  
+
   return {
     from: from.toISOString().slice(0, 10),
     to: to.toISOString().slice(0, 10),
@@ -234,7 +394,7 @@ function periodToDateRange(period: PeriodPreset): { from: string; to: string } {
 }
 
 export default function ShopifyDashboardClient() {
-  const [period, setPeriod] = useState<PeriodPreset>("yesterday");
+  const [period, setPeriod] = useState<PeriodPreset>("last_7");
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -257,33 +417,22 @@ export default function ShopifyDashboardClient() {
         }
 
         const json = await res.json();
-        const summary = json.summary ?? {};
-        const timeseries = json.timeseries ?? [];
-        const topProductsRaw = json.topProducts ?? [];
-
-        // Convert timeseries to chart format
-        const chartData = timeseries.map((point: any) => ({
-          date: point.date,
-          revenue: point.revenue_net ?? 0,
-          orders: point.orders ?? 0,
-        }));
-
-        // Convert top products from API response
-        const topProducts = topProductsRaw.map((p: any) => ({
-          name: p.product_title ?? 'Unknown Product',
-          revenue: p.revenue ?? 0,
-          orders: p.orders_count ?? 0,
-        }));
 
         setData({
-          metrics: {
-            total_sales: summary.revenue_net ?? 0,
-            total_orders: summary.orders ?? 0,
-            aov: summary.aov ?? 0,
-            conversion_rate: 0, // Requires sessions data - see ShopifyQL integration
+          summary: json.summary ?? {
+            orders: 0, revenue_gross: 0, revenue_net: 0, refunds: 0, aov: 0,
+            total_discounts: 0, total_shipping: 0, total_tax: 0,
+            new_customers: 0, returning_customers: 0, returning_customer_rate: 0,
           },
-          timeseries: chartData,
-          topProducts,
+          timeseries: json.timeseries ?? [],
+          topProducts: json.topProducts ?? [],
+          salesByChannel: json.salesByChannel ?? [],
+          salesByLocation: json.salesByLocation ?? [],
+          hourlySales: json.hourlySales ?? [],
+          customerStats: json.customerStats ?? {
+            total_customers: 0, new_customers: 0, returning_customers: 0,
+            returning_rate: 0, avg_customer_value: 0,
+          },
           currency: json.shop?.currency ?? "AUD",
           hasData: json.meta?.hasData ?? false,
         });
@@ -303,15 +452,19 @@ export default function ShopifyDashboardClient() {
   }, [period]);
 
   const currency = data?.currency ?? "AUD";
-  const metrics = data?.metrics ?? { total_sales: 0, total_orders: 0, aov: 0, conversion_rate: 0 };
+  const summary = data?.summary ?? {
+    orders: 0, revenue_gross: 0, revenue_net: 0, refunds: 0, aov: 0,
+    total_discounts: 0, total_shipping: 0, total_tax: 0,
+    new_customers: 0, returning_customers: 0, returning_customer_rate: 0,
+  };
 
   return (
     <div>
       {/* Header */}
       <div className="page-header">
         <div className="page-title-section">
-          <h1>Shopify Performance</h1>
-          <p>Detailed revenue, orders, and product analytics sourced directly from Shopify.</p>
+          <h1>Shopify Analytics</h1>
+          <p>Complete analytics matching your Shopify dashboard.</p>
         </div>
 
         <div className="date-filter">
@@ -344,116 +497,253 @@ export default function ShopifyDashboardClient() {
       {/* Dashboard Content */}
       {!loading && (
         <>
-          {/* KPI Cards */}
+          {/* Primary KPI Cards */}
           <div className="kpi-grid">
             <div className="kpi-card">
-              <div className="kpi-value">{formatCurrency(metrics.total_sales, currency)}</div>
-              <div className="kpi-label">Total Sales</div>
+              <div className="kpi-value">{formatCurrency(summary.revenue_net, currency)}</div>
+              <div className="kpi-label">Net Sales</div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-value">{formatNumber(metrics.total_orders)}</div>
+              <div className="kpi-value">{formatNumber(summary.orders)}</div>
               <div className="kpi-label">Total Orders</div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-value">{formatCurrency(metrics.aov, currency)}</div>
+              <div className="kpi-value">{formatCurrency(summary.aov, currency)}</div>
               <div className="kpi-label">Average Order Value</div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-value">{formatPercent(metrics.conversion_rate)}</div>
-              <div className="kpi-label">Conversion Rate</div>
+              <div className="kpi-value">{formatPercent(summary.returning_customer_rate)}</div>
+              <div className="kpi-label">Returning Customer Rate</div>
             </div>
           </div>
 
-          {/* Charts */}
+          {/* Secondary KPIs - Sales Breakdown */}
+          <div className="kpi-grid" style={{ marginTop: "1rem" }}>
+            <div className="kpi-card kpi-card-secondary">
+              <div className="kpi-value-small">{formatCurrency(summary.revenue_gross, currency)}</div>
+              <div className="kpi-label">Gross Sales</div>
+            </div>
+            <div className="kpi-card kpi-card-secondary">
+              <div className="kpi-value-small">{formatCurrency(summary.total_discounts, currency)}</div>
+              <div className="kpi-label">Discounts</div>
+            </div>
+            <div className="kpi-card kpi-card-secondary">
+              <div className="kpi-value-small">{formatCurrency(summary.refunds, currency)}</div>
+              <div className="kpi-label">Returns</div>
+            </div>
+            <div className="kpi-card kpi-card-secondary">
+              <div className="kpi-value-small">{formatCurrency(summary.total_shipping, currency)}</div>
+              <div className="kpi-label">Shipping</div>
+            </div>
+            <div className="kpi-card kpi-card-secondary">
+              <div className="kpi-value-small">{formatCurrency(summary.total_tax, currency)}</div>
+              <div className="kpi-label">Tax</div>
+            </div>
+          </div>
+
+          {/* Main Charts Row */}
+          <div className="charts-grid" style={{ marginTop: "1.5rem" }}>
+            <div className="chart-card" style={{ gridColumn: "span 2" }}>
+              <div className="card-header">
+                <h3 className="card-title">Total Sales Over Time</h3>
+              </div>
+              <div className="chart-container">
+                <RevenueChart data={data?.timeseries ?? []} currency={currency} />
+              </div>
+            </div>
+          </div>
+
+          {/* Secondary Charts Row */}
           <div className="charts-grid">
             <div className="chart-card">
               <div className="card-header">
-                <h3 className="card-title">Revenue Over Time</h3>
+                <h3 className="card-title">Orders Over Time</h3>
               </div>
               <div className="chart-container">
-                <LineChart data={data?.timeseries ?? []} currency={currency} />
+                <OrdersChart data={data?.timeseries ?? []} />
               </div>
             </div>
 
             <div className="chart-card">
               <div className="card-header">
-                <h3 className="card-title">Orders & Sessions</h3>
-                <span className="card-subtitle">Showing trends for the selected date range.</span>
+                <h3 className="card-title">Average Order Value Trend</h3>
               </div>
               <div className="chart-container">
-                <DualLineChart data={data?.timeseries ?? []} />
+                <AOVChart data={data?.timeseries ?? []} currency={currency} />
               </div>
-              <div className="chart-legend">
-                <div className="legend-item">
-                  <span className="legend-dot" style={{ backgroundColor: "#3b82f6" }} />
-                  <span>Orders</span>
+            </div>
+          </div>
+
+          {/* Hourly Sales */}
+          <div className="charts-grid">
+            <div className="chart-card" style={{ gridColumn: "span 2" }}>
+              <div className="card-header">
+                <h3 className="card-title">Sales by Hour of Day</h3>
+                <span className="card-subtitle">When your customers are buying</span>
+              </div>
+              <div className="chart-container">
+                <HourlySalesChart data={data?.hourlySales ?? []} currency={currency} />
+              </div>
+            </div>
+          </div>
+
+          {/* Customer Analytics */}
+          <div className="charts-grid">
+            <div className="chart-card">
+              <div className="card-header">
+                <h3 className="card-title">Customer Breakdown</h3>
+                <span className="card-subtitle">New vs Returning customers</span>
+              </div>
+              <div className="chart-container" style={{ padding: "1rem" }}>
+                <CustomerPieChart
+                  newCustomers={summary.new_customers}
+                  returningCustomers={summary.returning_customers}
+                />
+              </div>
+            </div>
+
+            <div className="chart-card">
+              <div className="card-header">
+                <h3 className="card-title">Customer Stats</h3>
+              </div>
+              <div style={{ padding: "1rem" }}>
+                <div className="stat-row">
+                  <span>Total Customers</span>
+                  <strong>{formatNumber(data?.customerStats.total_customers ?? 0)}</strong>
                 </div>
-                <div className="legend-item">
-                  <span className="legend-dot" style={{ backgroundColor: "#10b981" }} />
-                  <span>Sessions</span>
+                <div className="stat-row">
+                  <span>New Customers</span>
+                  <strong>{formatNumber(data?.customerStats.new_customers ?? 0)}</strong>
+                </div>
+                <div className="stat-row">
+                  <span>Returning Customers</span>
+                  <strong>{formatNumber(data?.customerStats.returning_customers ?? 0)}</strong>
+                </div>
+                <div className="stat-row">
+                  <span>Avg. Customer Value</span>
+                  <strong>{formatCurrency(data?.customerStats.avg_customer_value ?? 0, currency)}</strong>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Tables */}
+          {/* Tables Row */}
           <div className="tables-grid">
+            {/* Top Products */}
             <div className="card">
               <div className="card-header">
                 <h3 className="card-title">Top Products by Revenue</h3>
-                <span className="card-subtitle">Based on Shopify order line items.</span>
+                <span className="card-subtitle">Best selling products</span>
               </div>
               {data?.topProducts && data.topProducts.length > 0 ? (
                 <table className="data-table">
                   <thead>
                     <tr>
                       <th>Product</th>
-                      <th>Revenue</th>
-                      <th>Orders</th>
+                      <th style={{ textAlign: "right" }}>Qty</th>
+                      <th style={{ textAlign: "right" }}>Revenue</th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.topProducts.map((product, i) => (
                       <tr key={i}>
-                        <td>{product.name}</td>
-                        <td>{formatCurrency(product.revenue, currency)}</td>
-                        <td>{formatNumber(product.orders)}</td>
+                        <td>{product.product_title}</td>
+                        <td style={{ textAlign: "right" }}>{formatNumber(product.quantity_sold)}</td>
+                        <td style={{ textAlign: "right" }}>{formatCurrency(product.revenue, currency)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               ) : (
                 <div className="empty-state">
-                  <div className="empty-state-icon">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-                      <line x1="3" y1="6" x2="21" y2="6" />
-                      <path d="M16 10a4 4 0 0 1-8 0" />
-                    </svg>
-                  </div>
                   <p className="empty-state-title">No products yet</p>
-                  <p className="empty-state-text">Connect your Shopify store and sync data to see top products.</p>
+                  <p className="empty-state-text">Sales will appear here once orders are synced.</p>
                 </div>
               )}
             </div>
 
+            {/* Sales by Channel */}
             <div className="card">
               <div className="card-header">
-                <h3 className="card-title">Channel Performance</h3>
-                <span className="card-subtitle">Marketing efficiency by platform.</span>
+                <h3 className="card-title">Sales by Channel</h3>
+                <span className="card-subtitle">Revenue breakdown by source</span>
               </div>
-              <div className="empty-state">
-                <div className="empty-state-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="18" y1="20" x2="18" y2="10" />
-                    <line x1="12" y1="20" x2="12" y2="4" />
-                    <line x1="6" y1="20" x2="6" y2="14" />
-                  </svg>
+              {data?.salesByChannel && data.salesByChannel.length > 0 ? (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Channel</th>
+                      <th style={{ textAlign: "right" }}>Orders</th>
+                      <th style={{ textAlign: "right" }}>Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.salesByChannel.map((channel, i) => (
+                      <tr key={i}>
+                        <td>{channel.sales_channel}</td>
+                        <td style={{ textAlign: "right" }}>{formatNumber(channel.orders)}</td>
+                        <td style={{ textAlign: "right" }}>{formatCurrency(channel.revenue_net, currency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="empty-state">
+                  <p className="empty-state-title">No channel data</p>
+                  <p className="empty-state-text">Channel attribution will appear after syncing orders.</p>
                 </div>
-                <p className="empty-state-title">Coming soon</p>
-                <p className="empty-state-text">Channel attribution will be available after connecting Meta.</p>
-              </div>
+              )}
             </div>
+          </div>
+
+          {/* Location Table */}
+          <div className="tables-grid">
+            <div className="card" style={{ gridColumn: "span 2" }}>
+              <div className="card-header">
+                <h3 className="card-title">Sales by Location</h3>
+                <span className="card-subtitle">Top regions by revenue</span>
+              </div>
+              {data?.salesByLocation && data.salesByLocation.length > 0 ? (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Country</th>
+                      <th>Region</th>
+                      <th style={{ textAlign: "right" }}>Orders</th>
+                      <th style={{ textAlign: "right" }}>New Customers</th>
+                      <th style={{ textAlign: "right" }}>Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.salesByLocation.map((location, i) => (
+                      <tr key={i}>
+                        <td>{location.country}</td>
+                        <td>{location.region || '-'}</td>
+                        <td style={{ textAlign: "right" }}>{formatNumber(location.orders)}</td>
+                        <td style={{ textAlign: "right" }}>{formatNumber(location.new_customers)}</td>
+                        <td style={{ textAlign: "right" }}>{formatCurrency(location.revenue_net, currency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="empty-state">
+                  <p className="empty-state-title">No location data</p>
+                  <p className="empty-state-text">Location data will appear after syncing orders.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Sessions Notice - ShopifyQL Required */}
+          <div className="card" style={{ marginTop: "1.5rem", textAlign: "center", padding: "2rem", background: "var(--bg-muted)" }}>
+            <h3 style={{ marginBottom: "0.5rem" }}>Sessions & Conversion Rate</h3>
+            <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
+              Session data and conversion rates require ShopifyQL integration.
+              <br />
+              This data is fetched separately from the Analytics API.
+            </p>
+            <span className="badge badge-info">Coming Soon</span>
           </div>
 
           {/* Empty State */}
@@ -470,6 +760,37 @@ export default function ShopifyDashboardClient() {
           )}
         </>
       )}
+
+      <style jsx>{`
+        .kpi-card-secondary {
+          background: var(--bg-secondary);
+        }
+        .kpi-value-small {
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+        .stat-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 0.75rem 0;
+          border-bottom: 1px solid var(--border-color);
+        }
+        .stat-row:last-child {
+          border-bottom: none;
+        }
+        .badge {
+          display: inline-block;
+          padding: 0.25rem 0.75rem;
+          border-radius: 9999px;
+          font-size: 0.75rem;
+          font-weight: 500;
+        }
+        .badge-info {
+          background: #dbeafe;
+          color: #1e40af;
+        }
+      `}</style>
     </div>
   );
 }

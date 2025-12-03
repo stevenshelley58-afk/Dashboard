@@ -49,12 +49,52 @@ interface ShopifyLineItemNode {
   discountedUnitPriceSet?: { shopMoney?: ShopifyMoney | null } | null;
 }
 
+interface ShopifyAddress {
+  city: string | null;
+  province: string | null;
+  provinceCode: string | null;
+  country: string | null;
+  countryCodeV2: string | null;
+}
+
+interface ShopifyCustomer {
+  id: string;
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  ordersCount: number | null;
+  acceptsMarketing: boolean | null;
+  tags: string[];
+}
+
+interface ShopifyDiscountApplication {
+  allocationMethod: string | null;
+  targetSelection: string | null;
+  targetType: string | null;
+  value: {
+    __typename: string;
+    percentage?: number | null;
+    amount?: { amount: string | number } | null;
+  } | null;
+  code?: string | null;
+  title?: string | null;
+}
+
+interface ShopifyRefundNode {
+  id: string;
+  createdAt: string;
+  note: string | null;
+  totalRefundedSet?: { shopMoney?: ShopifyMoney | null } | null;
+}
+
 interface ShopifyOrderNode {
   id: string;
   name: string | null;
   orderNumber: number | null;
   createdAt: string;
   updatedAt: string;
+  cancelledAt: string | null;
+  closedAt: string | null;
   displayFinancialStatus: string | null;
   displayFulfillmentStatus: string | null;
   currencyCode: string | null;
@@ -62,6 +102,34 @@ interface ShopifyOrderNode {
   totalPriceSet?: { shopMoney?: ShopifyMoney | null } | null;
   subtotalPriceSet?: { shopMoney?: ShopifyMoney | null } | null;
   totalRefundedSet?: { shopMoney?: ShopifyMoney | null } | null;
+  totalDiscountsSet?: { shopMoney?: ShopifyMoney | null } | null;
+  totalShippingPriceSet?: { shopMoney?: ShopifyMoney | null } | null;
+  totalTaxSet?: { shopMoney?: ShopifyMoney | null } | null;
+  subtotalLineItemsQuantity: number | null;
+  channelInformation?: {
+    channelDefinition?: {
+      channelName: string | null;
+      handle: string | null;
+    } | null;
+  } | null;
+  sourceIdentifier: string | null;
+  sourceName: string | null;
+  landingSite: string | null;
+  referringSite: string | null;
+  tags: string[];
+  customer?: ShopifyCustomer | null;
+  billingAddress?: ShopifyAddress | null;
+  shippingAddress?: ShopifyAddress | null;
+  clientDetails?: {
+    browserIp: string | null;
+    userAgent: string | null;
+  } | null;
+  discountApplications?: {
+    edges: Array<{
+      node: ShopifyDiscountApplication;
+    }>;
+  } | null;
+  refunds?: ShopifyRefundNode[];
   lineItems?: {
     edges: Array<{
       node: ShopifyLineItemNode;
@@ -105,18 +173,70 @@ interface NormalizedLineItem {
   lineTotal: number;
 }
 
+interface NormalizedDiscount {
+  code: string | null;
+  title: string | null;
+  type: string; // 'percentage', 'fixed_amount'
+  value: number;
+}
+
+interface NormalizedRefund {
+  shopifyRefundId: string;
+  createdAt: string;
+  amount: number;
+  note: string | null;
+}
+
 interface NormalizedShopifyOrder {
   shopifyOrderId: string;
   orderName: string;
   orderCreatedAt: string;
   orderUpdatedAt: string;
   orderDate: string;
+  orderHour: number;
   orderStatus: string | null;
+  financialStatus: string | null;
+  fulfillmentStatus: string | null;
+  cancelledAt: string | null;
+  closedAt: string | null;
   totalGross: number;
   totalNet: number;
+  subtotal: number;
   refundTotal: number;
+  totalDiscounts: number;
+  totalShipping: number;
+  totalTax: number;
   currencyCode: string | null;
+  // Customer
+  shopifyCustomerId: string | null;
+  customerEmail: string | null;
+  customerFirstName: string | null;
+  customerLastName: string | null;
+  customerOrdersCount: number;
+  customerAcceptsMarketing: boolean;
+  customerTags: string[];
+  isFirstOrder: boolean;
+  // Channel & Source
+  salesChannel: string | null;
+  sourceName: string | null;
+  landingSite: string | null;
+  referringSite: string | null;
+  // Location
+  billingCountry: string | null;
+  billingRegion: string | null;
+  billingCity: string | null;
+  shippingCountry: string | null;
+  shippingRegion: string | null;
+  shippingCity: string | null;
+  // Device
+  deviceType: string | null;
+  browser: string | null;
+  // Tags
+  tags: string[];
+  // Line items, discounts, refunds
   lineItems: NormalizedLineItem[];
+  discounts: NormalizedDiscount[];
+  refunds: NormalizedRefund[];
   raw: ShopifyOrderNode;
 }
 
@@ -177,6 +297,62 @@ function normalizeLineItems(node: ShopifyOrderNode): NormalizedLineItem[] {
   });
 }
 
+function parseDeviceTypeFromUserAgent(userAgent: string | null | undefined): string | null {
+  if (!userAgent) return null;
+  const ua = userAgent.toLowerCase();
+  if (/mobile|android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua)) {
+    if (/ipad|tablet/i.test(ua)) return 'tablet';
+    return 'mobile';
+  }
+  return 'desktop';
+}
+
+function parseBrowserFromUserAgent(userAgent: string | null | undefined): string | null {
+  if (!userAgent) return null;
+  const ua = userAgent.toLowerCase();
+  if (ua.includes('chrome')) return 'Chrome';
+  if (ua.includes('safari')) return 'Safari';
+  if (ua.includes('firefox')) return 'Firefox';
+  if (ua.includes('edge')) return 'Edge';
+  if (ua.includes('opera') || ua.includes('opr')) return 'Opera';
+  if (ua.includes('msie') || ua.includes('trident')) return 'Internet Explorer';
+  return 'Other';
+}
+
+function normalizeDiscounts(node: ShopifyOrderNode): NormalizedDiscount[] {
+  const edges = node.discountApplications?.edges ?? [];
+  return edges.map(({ node: disc }) => {
+    let type = 'fixed_amount';
+    let value = 0;
+
+    if (disc.value?.__typename === 'PricingPercentageValue' && disc.value.percentage != null) {
+      type = 'percentage';
+      value = disc.value.percentage;
+    } else if (disc.value?.amount) {
+      type = 'fixed_amount';
+      const amt = disc.value.amount.amount;
+      value = typeof amt === 'string' ? parseFloat(amt) : (amt ?? 0);
+    }
+
+    return {
+      code: disc.code ?? null,
+      title: disc.title ?? null,
+      type,
+      value,
+    };
+  });
+}
+
+function normalizeRefunds(node: ShopifyOrderNode): NormalizedRefund[] {
+  const refunds = node.refunds ?? [];
+  return refunds.map((refund) => ({
+    shopifyRefundId: refund.id,
+    createdAt: refund.createdAt,
+    amount: parseMoney(refund.totalRefundedSet?.shopMoney),
+    note: refund.note,
+  }));
+}
+
 function normalizeOrder(node: ShopifyOrderNode): NormalizedShopifyOrder {
   const currencyCode =
     node.currencyCode ??
@@ -186,8 +362,12 @@ function normalizeOrder(node: ShopifyOrderNode): NormalizedShopifyOrder {
 
   const gross =
     parseMoney(node.currentTotalPriceSet?.shopMoney) || parseMoney(node.totalPriceSet?.shopMoney);
-  const refunds = parseMoney(node.totalRefundedSet?.shopMoney);
-  const net = Math.max(gross - refunds, 0);
+  const refundTotal = parseMoney(node.totalRefundedSet?.shopMoney);
+  const net = Math.max(gross - refundTotal, 0);
+  const subtotal = parseMoney(node.subtotalPriceSet?.shopMoney);
+  const totalDiscounts = parseMoney(node.totalDiscountsSet?.shopMoney);
+  const totalShipping = parseMoney(node.totalShippingPriceSet?.shopMoney);
+  const totalTax = parseMoney(node.totalTaxSet?.shopMoney);
 
   const orderName =
     node.name ??
@@ -195,18 +375,70 @@ function normalizeOrder(node: ShopifyOrderNode): NormalizedShopifyOrder {
       ? `#${node.orderNumber}`
       : node.id.replace("gid://shopify/Order/", "order_"));
 
+  const createdAtDate = new Date(node.createdAt);
+  const orderHour = createdAtDate.getUTCHours();
+
+  // Customer info
+  const shopifyCustomerId = node.customer ? extractGid(node.customer.id, 'Customer') : null;
+  const customerOrdersCount = node.customer?.ordersCount ?? 0;
+  const isFirstOrder = customerOrdersCount <= 1;
+
+  // Channel
+  const salesChannel = node.channelInformation?.channelDefinition?.channelName ??
+    node.channelInformation?.channelDefinition?.handle ??
+    node.sourceName ??
+    'Online Store';
+
   return {
     shopifyOrderId: node.id,
     orderName,
     orderCreatedAt: node.createdAt,
     orderUpdatedAt: node.updatedAt,
     orderDate: toDateOnly(node.createdAt),
+    orderHour,
     orderStatus: normalizeOrderStatus(node),
+    financialStatus: node.displayFinancialStatus,
+    fulfillmentStatus: node.displayFulfillmentStatus,
+    cancelledAt: node.cancelledAt,
+    closedAt: node.closedAt,
     totalGross: gross,
     totalNet: net,
-    refundTotal: refunds,
+    subtotal,
+    refundTotal,
+    totalDiscounts,
+    totalShipping,
+    totalTax,
     currencyCode,
+    // Customer
+    shopifyCustomerId,
+    customerEmail: node.customer?.email ?? null,
+    customerFirstName: node.customer?.firstName ?? null,
+    customerLastName: node.customer?.lastName ?? null,
+    customerOrdersCount,
+    customerAcceptsMarketing: node.customer?.acceptsMarketing ?? false,
+    customerTags: node.customer?.tags ?? [],
+    isFirstOrder,
+    // Channel & Source
+    salesChannel,
+    sourceName: node.sourceName,
+    landingSite: node.landingSite,
+    referringSite: node.referringSite,
+    // Location
+    billingCountry: node.billingAddress?.country ?? node.billingAddress?.countryCodeV2 ?? null,
+    billingRegion: node.billingAddress?.province ?? node.billingAddress?.provinceCode ?? null,
+    billingCity: node.billingAddress?.city ?? null,
+    shippingCountry: node.shippingAddress?.country ?? node.shippingAddress?.countryCodeV2 ?? null,
+    shippingRegion: node.shippingAddress?.province ?? node.shippingAddress?.provinceCode ?? null,
+    shippingCity: node.shippingAddress?.city ?? null,
+    // Device
+    deviceType: parseDeviceTypeFromUserAgent(node.clientDetails?.userAgent),
+    browser: parseBrowserFromUserAgent(node.clientDetails?.userAgent),
+    // Tags
+    tags: node.tags ?? [],
+    // Line items, discounts, refunds
     lineItems: normalizeLineItems(node),
+    discounts: normalizeDiscounts(node),
+    refunds: normalizeRefunds(node),
     raw: node,
   };
 }
@@ -314,9 +546,15 @@ async function fetchShopifyOrders(
                 name
                 createdAt
                 updatedAt
+                cancelledAt
+                closedAt
                 displayFinancialStatus
                 displayFulfillmentStatus
                 currencyCode
+                tags
+                sourceName
+                landingSite
+                referringSite
                 currentTotalPriceSet {
                   shopMoney {
                     amount
@@ -339,6 +577,99 @@ async function fetchShopifyOrders(
                   shopMoney {
                     amount
                     currencyCode
+                  }
+                }
+                totalDiscountsSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                totalShippingPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                totalTaxSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                subtotalLineItemsQuantity
+                channelInformation {
+                  channelDefinition {
+                    channelName
+                    handle
+                  }
+                }
+                customer {
+                  id
+                  email
+                  firstName
+                  lastName
+                  ordersCount
+                  acceptsMarketing
+                  tags
+                }
+                billingAddress {
+                  city
+                  province
+                  provinceCode
+                  country
+                  countryCodeV2
+                }
+                shippingAddress {
+                  city
+                  province
+                  provinceCode
+                  country
+                  countryCodeV2
+                }
+                clientDetails {
+                  browserIp
+                  userAgent
+                }
+                discountApplications(first: 10) {
+                  edges {
+                    node {
+                      allocationMethod
+                      targetSelection
+                      targetType
+                      value {
+                        __typename
+                        ... on PricingPercentageValue {
+                          percentage
+                        }
+                        ... on MoneyV2 {
+                          amount
+                        }
+                      }
+                      ... on DiscountCodeApplication {
+                        code
+                      }
+                      ... on ManualDiscountApplication {
+                        title
+                      }
+                      ... on AutomaticDiscountApplication {
+                        title
+                      }
+                      ... on ScriptDiscountApplication {
+                        title
+                      }
+                    }
+                  }
+                }
+                refunds {
+                  id
+                  createdAt
+                  note
+                  totalRefundedSet {
+                    shopMoney {
+                      amount
+                      currencyCode
+                    }
                   }
                 }
                 lineItems(first: 50) {
@@ -572,7 +903,7 @@ async function replaceFactOrders(
     [integration.integrationId, orderNames]
   );
 
-  const columns = 11;
+  const columns = 30;
   const values: unknown[] = [];
   const placeholders = buildValuesPlaceholders(orders.length, columns);
 
@@ -588,7 +919,27 @@ async function replaceFactOrders(
       order.totalGross,
       order.totalNet,
       order.refundTotal,
-      order.currencyCode ?? integration.currency ?? null
+      order.currencyCode ?? integration.currency ?? null,
+      // New columns
+      order.shopifyOrderId,
+      order.shopifyCustomerId,
+      order.customerEmail,
+      order.isFirstOrder,
+      order.totalDiscounts,
+      order.totalShipping,
+      order.totalTax,
+      order.subtotal,
+      order.subtotal, // total_line_items_price (same as subtotal)
+      order.fulfillmentStatus,
+      order.financialStatus,
+      order.cancelledAt,
+      order.closedAt,
+      order.salesChannel,
+      order.sourceName,
+      order.landingSite,
+      order.referringSite,
+      order.shippingCountry,
+      order.shippingRegion
     );
   });
 
@@ -605,7 +956,26 @@ async function replaceFactOrders(
         total_gross,
         total_net,
         refund_total,
-        currency
+        currency,
+        shopify_order_id,
+        shopify_customer_id,
+        customer_email,
+        is_first_order,
+        total_discounts,
+        total_shipping,
+        total_tax,
+        subtotal,
+        total_line_items_price,
+        fulfillment_status,
+        financial_status,
+        cancelled_at,
+        closed_at,
+        sales_channel,
+        source_name,
+        landing_site,
+        referring_site,
+        shipping_country,
+        shipping_region
       )
       VALUES ${placeholders}
     `,
@@ -787,7 +1157,13 @@ async function rebuildDailyShopifyMetrics(
         revenue_gross,
         revenue_net,
         refunds,
-        aov
+        aov,
+        total_discounts,
+        total_shipping,
+        total_tax,
+        new_customers,
+        returning_customers,
+        returning_customer_rate
       )
       SELECT
         $1::uuid AS shop_id,
@@ -797,7 +1173,17 @@ async function rebuildDailyShopifyMetrics(
         COALESCE(SUM(f.total_gross), 0) AS revenue_gross,
         COALESCE(SUM(f.total_net), 0) AS revenue_net,
         COALESCE(SUM(f.refund_total), 0) AS refunds,
-        CASE WHEN COUNT(*) > 0 THEN COALESCE(SUM(f.total_net), 0) / COUNT(*) ELSE 0 END AS aov
+        CASE WHEN COUNT(*) > 0 THEN COALESCE(SUM(f.total_net), 0) / COUNT(*) ELSE 0 END AS aov,
+        COALESCE(SUM(f.total_discounts), 0) AS total_discounts,
+        COALESCE(SUM(f.total_shipping), 0) AS total_shipping,
+        COALESCE(SUM(f.total_tax), 0) AS total_tax,
+        COUNT(*) FILTER (WHERE f.is_first_order = true) AS new_customers,
+        COUNT(*) FILTER (WHERE f.is_first_order = false OR f.is_first_order IS NULL) AS returning_customers,
+        CASE
+          WHEN COUNT(*) > 0 THEN
+            (COUNT(*) FILTER (WHERE f.is_first_order = false OR f.is_first_order IS NULL))::numeric / COUNT(*)
+          ELSE 0
+        END AS returning_customer_rate
       FROM fact_orders f
       WHERE f.shop_id = $1
         AND f.account_id = $2
@@ -805,6 +1191,254 @@ async function rebuildDailyShopifyMetrics(
       GROUP BY f.order_date
     `,
     [integration.shopId, integration.accountId, dates]
+  );
+}
+
+async function rebuildDailySalesByChannel(
+  client: PoolClient,
+  integration: ShopifyIntegrationDetails,
+  dates: string[]
+): Promise<void> {
+  if (dates.length === 0) {
+    return;
+  }
+
+  await client.query(
+    `
+      DELETE FROM daily_sales_by_channel
+      WHERE shop_id = $1
+        AND date = ANY($2::date[])
+    `,
+    [integration.shopId, dates]
+  );
+
+  await client.query(
+    `
+      INSERT INTO daily_sales_by_channel (
+        shop_id,
+        account_id,
+        date,
+        sales_channel,
+        orders,
+        revenue_gross,
+        revenue_net,
+        aov
+      )
+      SELECT
+        $1::uuid AS shop_id,
+        $2::uuid AS account_id,
+        f.order_date::date AS date,
+        COALESCE(f.sales_channel, 'Unknown') AS sales_channel,
+        COUNT(*) AS orders,
+        COALESCE(SUM(f.total_gross), 0) AS revenue_gross,
+        COALESCE(SUM(f.total_net), 0) AS revenue_net,
+        CASE WHEN COUNT(*) > 0 THEN COALESCE(SUM(f.total_net), 0) / COUNT(*) ELSE 0 END AS aov
+      FROM fact_orders f
+      WHERE f.shop_id = $1
+        AND f.account_id = $2
+        AND f.order_date = ANY($3::date[])
+      GROUP BY f.order_date, COALESCE(f.sales_channel, 'Unknown')
+    `,
+    [integration.shopId, integration.accountId, dates]
+  );
+}
+
+async function rebuildDailySalesByLocation(
+  client: PoolClient,
+  integration: ShopifyIntegrationDetails,
+  dates: string[]
+): Promise<void> {
+  if (dates.length === 0) {
+    return;
+  }
+
+  await client.query(
+    `
+      DELETE FROM daily_sales_by_location
+      WHERE shop_id = $1
+        AND date = ANY($2::date[])
+    `,
+    [integration.shopId, dates]
+  );
+
+  await client.query(
+    `
+      INSERT INTO daily_sales_by_location (
+        shop_id,
+        account_id,
+        date,
+        country,
+        region,
+        orders,
+        revenue_net,
+        new_customers
+      )
+      SELECT
+        $1::uuid AS shop_id,
+        $2::uuid AS account_id,
+        f.order_date::date AS date,
+        COALESCE(f.shipping_country, 'Unknown') AS country,
+        f.shipping_region AS region,
+        COUNT(*) AS orders,
+        COALESCE(SUM(f.total_net), 0) AS revenue_net,
+        COUNT(*) FILTER (WHERE f.is_first_order = true) AS new_customers
+      FROM fact_orders f
+      WHERE f.shop_id = $1
+        AND f.account_id = $2
+        AND f.order_date = ANY($3::date[])
+      GROUP BY f.order_date, COALESCE(f.shipping_country, 'Unknown'), f.shipping_region
+    `,
+    [integration.shopId, integration.accountId, dates]
+  );
+}
+
+async function rebuildHourlySales(
+  client: PoolClient,
+  integration: ShopifyIntegrationDetails,
+  dates: string[]
+): Promise<void> {
+  if (dates.length === 0) {
+    return;
+  }
+
+  await client.query(
+    `
+      DELETE FROM hourly_sales
+      WHERE shop_id = $1
+        AND date = ANY($2::date[])
+    `,
+    [integration.shopId, dates]
+  );
+
+  await client.query(
+    `
+      INSERT INTO hourly_sales (
+        shop_id,
+        account_id,
+        date,
+        hour,
+        orders,
+        revenue_net
+      )
+      SELECT
+        $1::uuid AS shop_id,
+        $2::uuid AS account_id,
+        f.order_date::date AS date,
+        EXTRACT(HOUR FROM f.order_created_at AT TIME ZONE 'UTC')::integer AS hour,
+        COUNT(*) AS orders,
+        COALESCE(SUM(f.total_net), 0) AS revenue_net
+      FROM fact_orders f
+      WHERE f.shop_id = $1
+        AND f.account_id = $2
+        AND f.order_date = ANY($3::date[])
+      GROUP BY f.order_date, EXTRACT(HOUR FROM f.order_created_at AT TIME ZONE 'UTC')::integer
+    `,
+    [integration.shopId, integration.accountId, dates]
+  );
+}
+
+async function upsertCustomers(
+  client: PoolClient,
+  integration: ShopifyIntegrationDetails,
+  orders: NormalizedShopifyOrder[]
+): Promise<void> {
+  // Extract unique customers from orders
+  const customerMap = new Map<string, NormalizedShopifyOrder>();
+  for (const order of orders) {
+    if (order.shopifyCustomerId) {
+      const existing = customerMap.get(order.shopifyCustomerId);
+      // Keep the most recent order for each customer
+      if (!existing || order.orderCreatedAt > existing.orderCreatedAt) {
+        customerMap.set(order.shopifyCustomerId, order);
+      }
+    }
+  }
+
+  const uniqueCustomers = Array.from(customerMap.values());
+  if (uniqueCustomers.length === 0) {
+    return;
+  }
+
+  // Upsert each customer
+  for (const order of uniqueCustomers) {
+    await client.query(
+      `
+        INSERT INTO dim_customers (
+          shop_id,
+          account_id,
+          shopify_customer_id,
+          email,
+          first_name,
+          last_name,
+          total_orders,
+          accepts_marketing,
+          tags,
+          country,
+          region,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+        ON CONFLICT (shop_id, shopify_customer_id)
+        DO UPDATE SET
+          email = COALESCE(EXCLUDED.email, dim_customers.email),
+          first_name = COALESCE(EXCLUDED.first_name, dim_customers.first_name),
+          last_name = COALESCE(EXCLUDED.last_name, dim_customers.last_name),
+          total_orders = GREATEST(EXCLUDED.total_orders, dim_customers.total_orders),
+          accepts_marketing = EXCLUDED.accepts_marketing,
+          tags = EXCLUDED.tags,
+          country = COALESCE(EXCLUDED.country, dim_customers.country),
+          region = COALESCE(EXCLUDED.region, dim_customers.region),
+          updated_at = NOW()
+      `,
+      [
+        integration.shopId,
+        integration.accountId,
+        order.shopifyCustomerId,
+        order.customerEmail,
+        order.customerFirstName,
+        order.customerLastName,
+        order.customerOrdersCount,
+        order.customerAcceptsMarketing,
+        order.customerTags,
+        order.shippingCountry,
+        order.shippingRegion,
+      ]
+    );
+  }
+
+  // Update first_order_date for customers who don't have it set
+  await client.query(
+    `
+      UPDATE dim_customers c
+      SET
+        first_order_date = (
+          SELECT MIN(f.order_date)
+          FROM fact_orders f
+          WHERE f.shop_id = c.shop_id
+            AND f.shopify_customer_id = c.shopify_customer_id
+        ),
+        last_order_date = (
+          SELECT MAX(f.order_date)
+          FROM fact_orders f
+          WHERE f.shop_id = c.shop_id
+            AND f.shopify_customer_id = c.shopify_customer_id
+        ),
+        total_spent = (
+          SELECT COALESCE(SUM(f.total_net), 0)
+          FROM fact_orders f
+          WHERE f.shop_id = c.shop_id
+            AND f.shopify_customer_id = c.shopify_customer_id
+        ),
+        average_order_value = (
+          SELECT CASE WHEN COUNT(*) > 0 THEN COALESCE(SUM(f.total_net), 0) / COUNT(*) ELSE 0 END
+          FROM fact_orders f
+          WHERE f.shop_id = c.shop_id
+            AND f.shopify_customer_id = c.shopify_customer_id
+        )
+      WHERE c.shop_id = $1
+        AND c.shopify_customer_id = ANY($2::text[])
+    `,
+    [integration.shopId, Array.from(customerMap.keys())]
   );
 }
 
@@ -902,8 +1536,12 @@ async function persistOrdersAndAggregates(
       await upsertShopifyRaw(client, integration.integrationId, orders);
       await replaceFactOrders(client, integration, orders);
       await replaceFactOrderLines(client, integration, orders);
+      await upsertCustomers(client, integration, orders);
       await rebuildDailyShopifyMetrics(client, integration, dates);
       await rebuildDailyProductMetrics(client, integration, dates);
+      await rebuildDailySalesByChannel(client, integration, dates);
+      await rebuildDailySalesByLocation(client, integration, dates);
+      await rebuildHourlySales(client, integration, dates);
       await rebuildDailySummary(client, integration.accountId, dates);
     }
 
