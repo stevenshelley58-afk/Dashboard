@@ -285,3 +285,22 @@ CREATE TABLE IF NOT EXISTS aov_trend (
 
 CREATE INDEX IF NOT EXISTS idx_aov_trend_account_date
   ON aov_trend (account_id, date);
+
+-- =====================================================
+-- 13. TRAFFIC SOURCES (from ShopifyQL)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS daily_traffic_sources (
+  shop_id uuid NOT NULL REFERENCES shops(shop_id) ON DELETE CASCADE,
+  account_id uuid NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
+  date date NOT NULL,
+  source text NOT NULL,
+  sessions integer NOT NULL DEFAULT 0,
+  orders integer NOT NULL DEFAULT 0,
+  revenue numeric(18,2) NOT NULL DEFAULT 0,
+  conversion_rate numeric(8,4) NOT NULL DEFAULT 0,
+  PRIMARY KEY (shop_id, date, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_traffic_sources_account_date
+  ON daily_traffic_sources (account_id, date);

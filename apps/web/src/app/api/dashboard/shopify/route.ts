@@ -471,6 +471,35 @@ async function fetchCustomerStats(params: {
   };
 }
 
+interface SessionsData {
+  date: string;
+  sessions: number;
+  visitors: number;
+  page_views: number;
+  add_to_carts: number;
+  reached_checkout: number;
+  conversion_rate: number;
+}
+
+interface TrafficSource {
+  source: string;
+  sessions: number;
+  orders: number;
+  revenue: number;
+  conversion_rate: number;
+}
+
+interface FunnelSummary {
+  sessions: number;
+  visitors: number;
+  add_to_carts: number;
+  reached_checkout: number;
+  orders: number;
+  conversion_rate: number;
+  cart_abandonment_rate: number;
+  checkout_abandonment_rate: number;
+}
+
 interface EnhancedSummary extends ShopifyDashboardSummary {
   total_discounts: number;
   total_shipping: number;
@@ -478,6 +507,116 @@ interface EnhancedSummary extends ShopifyDashboardSummary {
   new_customers: number;
   returning_customers: number;
   returning_customer_rate: number;
+}
+
+async function fetchSessionsTimeseries(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+}): Promise<SessionsData[]> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        date::date AS date,
+        sessions,
+        COALESCE(product_views, 0) AS page_views,
+        COALESCE(add_to_carts, 0) AS add_to_carts,
+        COALESCE(reached_checkout, 0) AS reached_checkout,
+        COALESCE(overall_conversion_rate, 0) AS conversion_rate
+      FROM daily_funnel_metrics
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+      ORDER BY date ASC
+    `,
+    [params.accountId, params.shopId, params.from, params.to]
+  );
+
+  return result.rows.map((row) => ({
+    date: row.date,
+    sessions: toNumber(row.sessions),
+    visitors: toNumber(row.sessions), // Approximate visitors = sessions
+    page_views: toNumber(row.page_views),
+    add_to_carts: toNumber(row.add_to_carts),
+    reached_checkout: toNumber(row.reached_checkout),
+    conversion_rate: toNumber(row.conversion_rate),
+  }));
+}
+
+async function fetchTrafficSources(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+  limit?: number;
+}): Promise<TrafficSource[]> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        source,
+        SUM(sessions) AS sessions,
+        SUM(orders) AS orders,
+        SUM(revenue) AS revenue,
+        CASE WHEN SUM(sessions) > 0 THEN SUM(orders)::numeric / SUM(sessions) ELSE 0 END AS conversion_rate
+      FROM daily_traffic_sources
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+      GROUP BY source
+      ORDER BY SUM(sessions) DESC
+      LIMIT $5
+    `,
+    [params.accountId, params.shopId, params.from, params.to, params.limit ?? 10]
+  );
+
+  return result.rows.map((row) => ({
+    source: row.source,
+    sessions: toNumber(row.sessions),
+    orders: toNumber(row.orders),
+    revenue: toNumber(row.revenue),
+    conversion_rate: toNumber(row.conversion_rate),
+  }));
+}
+
+async function fetchFunnelSummary(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+}): Promise<FunnelSummary> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        SUM(sessions) AS sessions,
+        SUM(add_to_carts) AS add_to_carts,
+        SUM(reached_checkout) AS reached_checkout,
+        SUM(orders_placed) AS orders,
+        CASE WHEN SUM(sessions) > 0 THEN SUM(orders_placed)::numeric / SUM(sessions) ELSE 0 END AS conversion_rate,
+        CASE WHEN SUM(add_to_carts) > 0 THEN 1 - (SUM(reached_checkout)::numeric / SUM(add_to_carts)) ELSE 0 END AS cart_abandonment_rate,
+        CASE WHEN SUM(reached_checkout) > 0 THEN 1 - (SUM(orders_placed)::numeric / SUM(reached_checkout)) ELSE 0 END AS checkout_abandonment_rate
+      FROM daily_funnel_metrics
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+    `,
+    [params.accountId, params.shopId, params.from, params.to]
+  );
+
+  const row = result.rows[0] || {};
+  return {
+    sessions: toNumber(row.sessions),
+    visitors: toNumber(row.sessions), // Approximate
+    add_to_carts: toNumber(row.add_to_carts),
+    reached_checkout: toNumber(row.reached_checkout),
+    orders: toNumber(row.orders),
+    conversion_rate: toNumber(row.conversion_rate),
+    cart_abandonment_rate: toNumber(row.cart_abandonment_rate),
+    checkout_abandonment_rate: toNumber(row.checkout_abandonment_rate),
+  };
 }
 
 function buildEnhancedSummary(series: EnhancedTimeseries[]): EnhancedSummary {
@@ -539,6 +678,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       salesByLocation,
       hourlySales,
       customerStats,
+      sessionsTimeseries,
+      trafficSources,
+      funnelSummary,
     ] = await Promise.all([
       fetchEnhancedDailyMetrics(queryParams),
       fetchRecentOrders(queryParams),
@@ -547,6 +689,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       fetchSalesByLocation({ ...queryParams, limit: 10 }),
       fetchHourlySales(queryParams),
       fetchCustomerStats(queryParams),
+      fetchSessionsTimeseries(queryParams),
+      fetchTrafficSources({ ...queryParams, limit: 10 }),
+      fetchFunnelSummary(queryParams),
     ]);
 
     const summary = buildEnhancedSummary(timeseries);
@@ -562,8 +707,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       salesByLocation,
       hourlySales,
       customerStats,
+      sessionsTimeseries,
+      trafficSources,
+      funnelSummary,
       meta: {
         hasData: timeseries.length > 0 || recentOrders.length > 0,
+        hasSessionsData: sessionsTimeseries.length > 0,
       },
     };
 

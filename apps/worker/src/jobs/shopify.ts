@@ -11,6 +11,23 @@ const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const CURSOR_KEY = "last_synced_order_updated_at";
 const CURSOR_JOB_TYPE: JobType = "shopify_fresh";
 
+// ShopifyQL types for sessions/analytics data
+interface ShopifyQLTableData {
+  columns: Array<{
+    name: string;
+    dataType: string;
+  }>;
+  rowData: string[][];
+}
+
+interface ShopifyQLResponse {
+  shopifyqlQuery: {
+    __typename: string;
+    tableData?: ShopifyQLTableData;
+    parseErrors?: Array<{ message: string }>;
+  };
+}
+
 interface JobResult {
   stats?: Record<string, unknown>;
 }
@@ -487,6 +504,189 @@ async function callShopifyGraphql<T>(
     data: json.data,
     throttleStatus: json.extensions?.cost?.throttleStatus,
   };
+}
+
+/**
+ * Execute a ShopifyQL query to fetch analytics data (sessions, conversions, etc.)
+ * Requires the `read_reports` scope on the Shopify access token.
+ */
+async function fetchShopifyQLData(
+  integration: ShopifyIntegrationDetails,
+  shopifyqlQuery: string
+): Promise<ShopifyQLTableData | null> {
+  try {
+    const { data } = await callShopifyGraphql<ShopifyQLResponse>(integration, {
+      query: `
+        mutation RunShopifyQL($query: String!) {
+          shopifyqlQuery(query: $query) {
+            __typename
+            ... on TableResponse {
+              tableData {
+                columns {
+                  name
+                  dataType
+                }
+                rowData
+              }
+            }
+            ... on PolarisVizResponse {
+              tableData {
+                columns {
+                  name
+                  dataType
+                }
+                rowData
+              }
+            }
+            ... on ParseError {
+              parseErrors {
+                message
+              }
+            }
+          }
+        }
+      `,
+      variables: { query: shopifyqlQuery },
+    });
+
+    if (data.shopifyqlQuery.__typename === 'ParseError') {
+      const errors = data.shopifyqlQuery.parseErrors?.map(e => e.message).join('; ') ?? 'Unknown parse error';
+      console.warn(`ShopifyQL parse error for integration ${integration.integrationId}: ${errors}`);
+      return null;
+    }
+
+    return data.shopifyqlQuery.tableData ?? null;
+  } catch (error) {
+    // ShopifyQL may not be available for all stores (requires read_reports scope)
+    console.warn(`ShopifyQL query failed for integration ${integration.integrationId}:`, error);
+    return null;
+  }
+}
+
+interface SessionsData {
+  date: string;
+  sessions: number;
+  visitors: number;
+  pageViews: number;
+  addedToCart: number;
+  reachedCheckout: number;
+  sessionsConverted: number;
+  conversionRate: number;
+}
+
+/**
+ * Fetch sessions/traffic data for the last N days using ShopifyQL
+ */
+async function fetchSessionsData(
+  integration: ShopifyIntegrationDetails,
+  daysBack: number = 30
+): Promise<SessionsData[]> {
+  const query = `
+    FROM sessions
+    SINCE -${daysBack}d
+    UNTIL today
+    GROUP BY day
+    SELECT
+      sum(sessions) AS sessions,
+      sum(unique_visitors) AS visitors,
+      sum(page_views) AS page_views,
+      sum(added_to_cart) AS added_to_cart,
+      sum(reached_checkout) AS reached_checkout,
+      sum(sessions_converted) AS sessions_converted
+  `;
+
+  const tableData = await fetchShopifyQLData(integration, query);
+  if (!tableData) {
+    return [];
+  }
+
+  // Map column indices
+  const columnMap: Record<string, number> = {};
+  tableData.columns.forEach((col, idx) => {
+    columnMap[col.name.toLowerCase()] = idx;
+  });
+
+  const results: SessionsData[] = [];
+  for (const row of tableData.rowData) {
+    const sessions = parseFloat(row[columnMap['sessions']] ?? '0') || 0;
+    const visitors = parseFloat(row[columnMap['visitors']] ?? '0') || 0;
+    const pageViews = parseFloat(row[columnMap['page_views']] ?? '0') || 0;
+    const addedToCart = parseFloat(row[columnMap['added_to_cart']] ?? '0') || 0;
+    const reachedCheckout = parseFloat(row[columnMap['reached_checkout']] ?? '0') || 0;
+    const sessionsConverted = parseFloat(row[columnMap['sessions_converted']] ?? '0') || 0;
+    const conversionRate = sessions > 0 ? sessionsConverted / sessions : 0;
+
+    // The first column is typically the date (day)
+    const dateValue = row[columnMap['day']] ?? row[0] ?? '';
+    const date = dateValue.slice(0, 10); // Extract YYYY-MM-DD
+
+    if (date) {
+      results.push({
+        date,
+        sessions,
+        visitors,
+        pageViews,
+        addedToCart,
+        reachedCheckout,
+        sessionsConverted,
+        conversionRate,
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Fetch traffic sources data using ShopifyQL
+ */
+interface TrafficSourceData {
+  date: string;
+  source: string;
+  sessions: number;
+  orders: number;
+  revenue: number;
+}
+
+async function fetchTrafficSources(
+  integration: ShopifyIntegrationDetails,
+  daysBack: number = 30
+): Promise<TrafficSourceData[]> {
+  const query = `
+    FROM sessions
+    SINCE -${daysBack}d
+    UNTIL today
+    GROUP BY day, referrer_source
+    SELECT
+      sum(sessions) AS sessions,
+      sum(orders) AS orders,
+      sum(total_sales) AS revenue
+  `;
+
+  const tableData = await fetchShopifyQLData(integration, query);
+  if (!tableData) {
+    return [];
+  }
+
+  const columnMap: Record<string, number> = {};
+  tableData.columns.forEach((col, idx) => {
+    columnMap[col.name.toLowerCase()] = idx;
+  });
+
+  const results: TrafficSourceData[] = [];
+  for (const row of tableData.rowData) {
+    const date = (row[columnMap['day']] ?? row[0] ?? '').slice(0, 10);
+    const source = row[columnMap['referrer_source']] ?? row[1] ?? 'Direct';
+    const sessions = parseFloat(row[columnMap['sessions']] ?? '0') || 0;
+    const orders = parseFloat(row[columnMap['orders']] ?? '0') || 0;
+    const revenue = parseFloat(row[columnMap['revenue']] ?? '0') || 0;
+
+    if (date) {
+      results.push({ date, source, sessions, orders, revenue });
+    }
+  }
+
+  return results;
 }
 
 function computeThrottleDelayMs(status?: ShopifyThrottleStatus): number {
@@ -1337,6 +1537,126 @@ async function rebuildHourlySales(
   );
 }
 
+async function persistSessionsData(
+  client: PoolClient,
+  integration: ShopifyIntegrationDetails,
+  sessionsData: SessionsData[]
+): Promise<void> {
+  if (sessionsData.length === 0) {
+    return;
+  }
+
+  const dates = sessionsData.map(s => s.date);
+
+  // Delete existing funnel metrics for these dates
+  await client.query(
+    `
+      DELETE FROM daily_funnel_metrics
+      WHERE shop_id = $1
+        AND date = ANY($2::date[])
+    `,
+    [integration.shopId, dates]
+  );
+
+  // Insert new funnel metrics
+  const columns = 12;
+  const values: unknown[] = [];
+  const placeholders = buildValuesPlaceholders(sessionsData.length, columns);
+
+  for (const data of sessionsData) {
+    values.push(
+      integration.shopId,
+      integration.accountId,
+      data.date,
+      data.sessions,
+      data.pageViews,
+      data.addedToCart,
+      data.reachedCheckout,
+      data.reachedCheckout, // checkouts_started = reached_checkout
+      data.sessionsConverted,
+      data.sessionsConverted, // orders_placed approximated from sessions converted
+      data.addedToCart > 0 ? (1 - data.reachedCheckout / data.addedToCart) : 0, // cart abandonment
+      data.conversionRate
+    );
+  }
+
+  await client.query(
+    `
+      INSERT INTO daily_funnel_metrics (
+        shop_id,
+        account_id,
+        date,
+        sessions,
+        product_views,
+        add_to_carts,
+        reached_checkout,
+        checkouts_started,
+        checkouts_completed,
+        orders_placed,
+        cart_abandonment_rate,
+        overall_conversion_rate
+      )
+      VALUES ${placeholders}
+    `,
+    values
+  );
+}
+
+async function persistTrafficSources(
+  client: PoolClient,
+  integration: ShopifyIntegrationDetails,
+  trafficData: TrafficSourceData[]
+): Promise<void> {
+  if (trafficData.length === 0) {
+    return;
+  }
+
+  const dates = [...new Set(trafficData.map(t => t.date))];
+
+  // Delete existing traffic source data for these dates
+  await client.query(
+    `
+      DELETE FROM daily_traffic_sources
+      WHERE shop_id = $1
+        AND date = ANY($2::date[])
+    `,
+    [integration.shopId, dates]
+  );
+
+  // Insert new traffic source data
+  const columns = 7;
+  const values: unknown[] = [];
+  const placeholders = buildValuesPlaceholders(trafficData.length, columns);
+
+  for (const data of trafficData) {
+    values.push(
+      integration.shopId,
+      integration.accountId,
+      data.date,
+      data.source,
+      data.sessions,
+      data.orders,
+      data.revenue
+    );
+  }
+
+  await client.query(
+    `
+      INSERT INTO daily_traffic_sources (
+        shop_id,
+        account_id,
+        date,
+        source,
+        sessions,
+        orders,
+        revenue
+      )
+      VALUES ${placeholders}
+    `,
+    values
+  );
+}
+
 async function upsertCustomers(
   client: PoolClient,
   integration: ShopifyIntegrationDetails,
@@ -1676,6 +1996,45 @@ export async function runShopifyFreshJob(run: SyncRunRecord, pool: Pool): Promis
       cursorAdvanced,
       windowStart: cursorValue,
       windowEnd: formatIsoTimestamp(new Date()),
+    },
+  };
+}
+
+/**
+ * Sync sessions and traffic data from ShopifyQL Analytics.
+ * This job fetches sessions, conversion rates, and traffic sources.
+ * Requires the `read_reports` scope on the Shopify access token.
+ */
+export async function runShopifySessionsJob(run: SyncRunRecord, pool: Pool): Promise<JobResult> {
+  const integration = await loadShopifyIntegration(pool, run.integration_id);
+  const daysBack = 30;
+
+  // Fetch sessions and traffic data in parallel
+  const [sessionsData, trafficData] = await Promise.all([
+    fetchSessionsData(integration, daysBack),
+    fetchTrafficSources(integration, daysBack),
+  ]);
+
+  // Persist the data
+  await withTransaction(pool, async (client) => {
+    await persistSessionsData(client, integration, sessionsData);
+    await persistTrafficSources(client, integration, trafficData);
+  });
+
+  const dates = [...new Set([
+    ...sessionsData.map(s => s.date),
+    ...trafficData.map(t => t.date),
+  ])].sort();
+
+  return {
+    stats: {
+      jobType: "shopify_sessions",
+      integrationId: integration.integrationId,
+      sessionsRowsFetched: sessionsData.length,
+      trafficSourcesRowsFetched: trafficData.length,
+      datesAffected: dates,
+      daysBack,
+      shopifyqlAvailable: sessionsData.length > 0 || trafficData.length > 0,
     },
   };
 }

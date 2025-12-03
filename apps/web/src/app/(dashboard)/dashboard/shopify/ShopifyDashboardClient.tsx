@@ -56,6 +56,35 @@ interface CustomerStats {
   avg_customer_value: number;
 }
 
+interface SessionsData {
+  date: string;
+  sessions: number;
+  visitors: number;
+  page_views: number;
+  add_to_carts: number;
+  reached_checkout: number;
+  conversion_rate: number;
+}
+
+interface TrafficSource {
+  source: string;
+  sessions: number;
+  orders: number;
+  revenue: number;
+  conversion_rate: number;
+}
+
+interface FunnelSummary {
+  sessions: number;
+  visitors: number;
+  add_to_carts: number;
+  reached_checkout: number;
+  orders: number;
+  conversion_rate: number;
+  cart_abandonment_rate: number;
+  checkout_abandonment_rate: number;
+}
+
 interface EnhancedSummary {
   orders: number;
   revenue_gross: number;
@@ -78,8 +107,12 @@ interface DashboardData {
   salesByLocation: SalesByLocation[];
   hourlySales: HourlySales[];
   customerStats: CustomerStats;
+  sessionsTimeseries: SessionsData[];
+  trafficSources: TrafficSource[];
+  funnelSummary: FunnelSummary;
   currency: string;
   hasData: boolean;
+  hasSessionsData: boolean;
 }
 
 const PERIOD_OPTIONS: Array<{ id: PeriodPreset; label: string }> = [
@@ -308,6 +341,69 @@ function HourlySalesChart({ data, currency }: { data: HourlySales[]; currency: s
   );
 }
 
+// Sessions Over Time Chart
+function SessionsChart({ data }: { data: SessionsData[] }) {
+  if (data.length === 0) {
+    return <div className="chart-placeholder">No sessions data available</div>;
+  }
+
+  const width = 600;
+  const height = 200;
+  const padding = 40;
+
+  const values = data.map((d) => d.sessions);
+  const maxValue = Math.max(...values, 1);
+
+  const points = data.map((d, i) => {
+    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
+    const y = height - padding - (d.sessions / maxValue) * (height - padding * 2);
+    return { x, y, value: d.sessions };
+  });
+
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
+      {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+        const y = height - padding - ratio * (height - padding * 2);
+        return (
+          <line
+            key={ratio}
+            x1={padding}
+            y1={y}
+            x2={width - padding}
+            y2={y}
+            stroke="#e2e8f0"
+            strokeDasharray="4"
+          />
+        );
+      })}
+      <path
+        d={pathD}
+        fill="none"
+        stroke="#8b5cf6"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d={`${pathD} L ${points[points.length - 1]?.x || padding} ${height - padding} L ${padding} ${height - padding} Z`}
+        fill="url(#sessionsGradient)"
+        opacity="0.1"
+      />
+      <defs>
+        <linearGradient id="sessionsGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#8b5cf6" />
+          <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="4" fill="#8b5cf6" />
+      ))}
+    </svg>
+  );
+}
+
 // Customer Distribution Pie Chart
 function CustomerPieChart({ newCustomers, returningCustomers }: { newCustomers: number; returningCustomers: number }) {
   const total = newCustomers + returningCustomers;
@@ -433,8 +529,15 @@ export default function ShopifyDashboardClient() {
             total_customers: 0, new_customers: 0, returning_customers: 0,
             returning_rate: 0, avg_customer_value: 0,
           },
+          sessionsTimeseries: json.sessionsTimeseries ?? [],
+          trafficSources: json.trafficSources ?? [],
+          funnelSummary: json.funnelSummary ?? {
+            sessions: 0, visitors: 0, add_to_carts: 0, reached_checkout: 0,
+            orders: 0, conversion_rate: 0, cart_abandonment_rate: 0, checkout_abandonment_rate: 0,
+          },
           currency: json.shop?.currency ?? "AUD",
           hasData: json.meta?.hasData ?? false,
+          hasSessionsData: json.meta?.hasSessionsData ?? false,
         });
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -735,16 +838,122 @@ export default function ShopifyDashboardClient() {
             </div>
           </div>
 
-          {/* Sessions Notice - ShopifyQL Required */}
-          <div className="card" style={{ marginTop: "1.5rem", textAlign: "center", padding: "2rem", background: "var(--bg-muted)" }}>
-            <h3 style={{ marginBottom: "0.5rem" }}>Sessions & Conversion Rate</h3>
-            <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
-              Session data and conversion rates require ShopifyQL integration.
-              <br />
-              This data is fetched separately from the Analytics API.
-            </p>
-            <span className="badge badge-info">Coming Soon</span>
-          </div>
+          {/* Sessions & Conversion Funnel */}
+          {data?.hasSessionsData ? (
+            <>
+              {/* Funnel KPIs */}
+              <div className="kpi-grid" style={{ marginTop: "1.5rem" }}>
+                <div className="kpi-card">
+                  <div className="kpi-value">{formatNumber(data.funnelSummary.sessions)}</div>
+                  <div className="kpi-label">Total Sessions</div>
+                </div>
+                <div className="kpi-card">
+                  <div className="kpi-value">{formatNumber(data.funnelSummary.add_to_carts)}</div>
+                  <div className="kpi-label">Added to Cart</div>
+                </div>
+                <div className="kpi-card">
+                  <div className="kpi-value">{formatNumber(data.funnelSummary.reached_checkout)}</div>
+                  <div className="kpi-label">Reached Checkout</div>
+                </div>
+                <div className="kpi-card">
+                  <div className="kpi-value">{formatPercent(data.funnelSummary.conversion_rate)}</div>
+                  <div className="kpi-label">Conversion Rate</div>
+                </div>
+              </div>
+
+              {/* Sessions Chart */}
+              <div className="charts-grid" style={{ marginTop: "1rem" }}>
+                <div className="chart-card" style={{ gridColumn: "span 2" }}>
+                  <div className="card-header">
+                    <h3 className="card-title">Sessions Over Time</h3>
+                  </div>
+                  <div className="chart-container">
+                    <SessionsChart data={data.sessionsTimeseries} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Traffic Sources */}
+              <div className="tables-grid">
+                <div className="card">
+                  <div className="card-header">
+                    <h3 className="card-title">Traffic Sources</h3>
+                    <span className="card-subtitle">Where your visitors come from</span>
+                  </div>
+                  {data.trafficSources.length > 0 ? (
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Source</th>
+                          <th style={{ textAlign: "right" }}>Sessions</th>
+                          <th style={{ textAlign: "right" }}>Orders</th>
+                          <th style={{ textAlign: "right" }}>Conv. Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.trafficSources.map((source, i) => (
+                          <tr key={i}>
+                            <td>{source.source}</td>
+                            <td style={{ textAlign: "right" }}>{formatNumber(source.sessions)}</td>
+                            <td style={{ textAlign: "right" }}>{formatNumber(source.orders)}</td>
+                            <td style={{ textAlign: "right" }}>{formatPercent(source.conversion_rate)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="empty-state">
+                      <p className="empty-state-title">No traffic source data</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Funnel Stats */}
+                <div className="card">
+                  <div className="card-header">
+                    <h3 className="card-title">Conversion Funnel</h3>
+                    <span className="card-subtitle">Shopping behavior breakdown</span>
+                  </div>
+                  <div style={{ padding: "1rem" }}>
+                    <div className="stat-row">
+                      <span>Sessions</span>
+                      <strong>{formatNumber(data.funnelSummary.sessions)}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Added to Cart</span>
+                      <strong>{formatNumber(data.funnelSummary.add_to_carts)}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Reached Checkout</span>
+                      <strong>{formatNumber(data.funnelSummary.reached_checkout)}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Completed Orders</span>
+                      <strong>{formatNumber(data.funnelSummary.orders)}</strong>
+                    </div>
+                    <div className="stat-row" style={{ marginTop: "0.5rem", borderTop: "2px solid var(--border-color)", paddingTop: "0.75rem" }}>
+                      <span>Cart Abandonment</span>
+                      <strong>{formatPercent(data.funnelSummary.cart_abandonment_rate)}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Checkout Abandonment</span>
+                      <strong>{formatPercent(data.funnelSummary.checkout_abandonment_rate)}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="card" style={{ marginTop: "1.5rem", textAlign: "center", padding: "2rem", background: "var(--bg-muted)" }}>
+              <h3 style={{ marginBottom: "0.5rem" }}>Sessions & Conversion Rate</h3>
+              <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
+                Session data requires your Shopify app to have the <code>read_reports</code> scope.
+                <br />
+                Run a sessions sync job to populate this data.
+              </p>
+              <span className="badge badge-secondary">No Sessions Data</span>
+            </div>
+          )}
 
           {/* Empty State */}
           {!data?.hasData && (
@@ -789,6 +998,10 @@ export default function ShopifyDashboardClient() {
         .badge-info {
           background: #dbeafe;
           color: #1e40af;
+        }
+        .badge-secondary {
+          background: #f1f5f9;
+          color: #64748b;
         }
       `}</style>
     </div>
