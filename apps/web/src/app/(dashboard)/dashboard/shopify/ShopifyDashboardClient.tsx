@@ -1,48 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-type PeriodPreset = "today" | "yesterday" | "last_7" | "this_week" | "last_30";
-
-interface ShopifyMetrics {
-  total_sales: number;
-  total_orders: number;
-  aov: number;
-  conversion_rate: number;
-}
-
-interface TimeseriesPoint {
-  date: string;
-  revenue: number;
-  orders: number;
-}
-
-interface TopProduct {
-  name: string;
-  revenue: number;
-  orders: number;
-}
-
-interface DashboardData {
-  metrics: ShopifyMetrics;
-  timeseries: TimeseriesPoint[];
-  topProducts: TopProduct[];
-  currency: string;
-  hasData: boolean;
-}
-
-const PERIOD_OPTIONS: Array<{ id: PeriodPreset; label: string }> = [
-  { id: "today", label: "Today" },
-  { id: "yesterday", label: "Yesterday" },
-  { id: "last_7", label: "Last 7" },
-  { id: "this_week", label: "This Week" },
-  { id: "last_30", label: "Last 30" },
-];
+import { useRouter, useSearchParams } from "next/navigation";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import type { ShopifyDashboardResponse } from "@/types/shopify-dashboard";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { DataFreshnessBadge } from "@/components/dashboard/DataFreshnessBadge";
+import { Badge } from "@/components/ui/badge";
 
 function formatCurrency(value: number, currency: string): string {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
-    currency,
+    currency: currency || "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
@@ -52,415 +21,273 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
 
-function formatPercent(value: number): string {
-  return `${value.toFixed(1)}%`;
+interface ShopifyDashboardClientProps {
+  initialData: ShopifyDashboardResponse;
 }
 
-// Simple SVG Line Chart
-function LineChart({ data, currency }: { data: TimeseriesPoint[]; currency: string }) {
-  if (data.length === 0) {
-    return (
-      <div className="chart-placeholder">
-        No data available for this period
-      </div>
-    );
-  }
+export default function ShopifyDashboardClient({ initialData }: ShopifyDashboardClientProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const shop = initialData.shop;
+  const summary = initialData.summary;
+  const currency = shop.currency || "USD";
 
-  const width = 600;
-  const height = 200;
-  const padding = 40;
+  // Prepare chart data
+  const chartData = initialData.timeseries.map((point) => ({
+    date: new Date(point.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    revenue: point.revenue_net,
+    orders: point.orders,
+    refunds: point.refunds,
+  }));
 
-  const values = data.map((d) => d.revenue);
-  const maxValue = Math.max(...values, 1);
-  const minValue = 0;
-
-  const points = data.map((d, i) => {
-    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
-    const y = height - padding - ((d.revenue - minValue) / (maxValue - minValue || 1)) * (height - padding * 2);
-    return { x, y, value: d.revenue, date: d.date };
-  });
-
-  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
-      {/* Grid lines */}
-      {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-        const y = height - padding - ratio * (height - padding * 2);
-        return (
-          <line
-            key={ratio}
-            x1={padding}
-            y1={y}
-            x2={width - padding}
-            y2={y}
-            stroke="#e2e8f0"
-            strokeDasharray="4"
-          />
-        );
-      })}
-
-      {/* Line */}
-      <path
-        d={pathD}
-        fill="none"
-        stroke="#4F46E5"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-
-      {/* Area fill */}
-      <path
-        d={`${pathD} L ${points[points.length - 1]?.x || padding} ${height - padding} L ${padding} ${height - padding} Z`}
-        fill="url(#gradient)"
-        opacity="0.1"
-      />
-
-      {/* Gradient definition */}
-      <defs>
-        <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#4F46E5" />
-          <stop offset="100%" stopColor="#4F46E5" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-
-      {/* Data points */}
-      {points.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r="4" fill="#4F46E5" />
-      ))}
-    </svg>
-  );
-}
-
-// Dual Line Chart for Orders & Sessions
-function DualLineChart({ data }: { data: TimeseriesPoint[] }) {
-  if (data.length === 0) {
-    return (
-      <div className="chart-placeholder">
-        No data available for this period
-      </div>
-    );
-  }
-
-  const width = 400;
-  const height = 200;
-  const padding = 40;
-
-  const orderValues = data.map((d) => d.orders);
-  const maxOrders = Math.max(...orderValues, 1);
-
-  const orderPoints = data.map((d, i) => {
-    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
-    const y = height - padding - (d.orders / maxOrders) * (height - padding * 2);
-    return { x, y };
-  });
-
-  const ordersPath = orderPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
-      {/* Grid */}
-      {[0, 0.5, 1].map((ratio) => {
-        const y = height - padding - ratio * (height - padding * 2);
-        return (
-          <line
-            key={ratio}
-            x1={padding}
-            y1={y}
-            x2={width - padding}
-            y2={y}
-            stroke="#e2e8f0"
-            strokeDasharray="4"
-          />
-        );
-      })}
-
-      {/* Orders line */}
-      <path
-        d={ordersPath}
-        fill="none"
-        stroke="#3b82f6"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-
-      {/* Sessions line (simulated as slightly different) */}
-      <path
-        d={orderPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y + 15}`).join(" ")}
-        fill="none"
-        stroke="#10b981"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function periodToDateRange(period: PeriodPreset): { from: string; to: string } {
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  
-  const to = new Date(today);
-  let from = new Date(today);
-  
-  switch (period) {
-    case "today":
-      from = new Date(today);
-      break;
-    case "yesterday":
-      from = new Date(today);
-      from.setUTCDate(from.getUTCDate() - 1);
-      to.setUTCDate(to.getUTCDate() - 1);
-      break;
-    case "last_7":
-      from.setUTCDate(from.getUTCDate() - 6);
-      break;
-    case "this_week":
-      // Monday to today
-      const dayOfWeek = today.getUTCDay();
-      const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-      from.setUTCDate(from.getUTCDate() - diff);
-      break;
-    case "last_30":
-      from.setUTCDate(from.getUTCDate() - 29);
-      break;
-  }
-  
-  return {
-    from: from.toISOString().slice(0, 10),
-    to: to.toISOString().slice(0, 10),
+  const handleDateChange = (from: string, to: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("from", from);
+    params.set("to", to);
+    router.push(`?${params.toString()}`);
   };
-}
-
-export default function ShopifyDashboardClient() {
-  const [period, setPeriod] = useState<PeriodPreset>("yesterday");
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-
-    async function fetchData() {
-      try {
-        const { from, to } = periodToDateRange(period);
-        const res = await fetch(`/api/dashboard/shopify?from=${from}&to=${to}`, {
-          signal: controller.signal,
-        });
-
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          throw new Error(errorData.error || "Failed to load Shopify data");
-        }
-
-        const json = await res.json();
-        const summary = json.summary ?? {};
-        const timeseries = json.timeseries ?? [];
-        
-        // Convert timeseries to chart format
-        const chartData = timeseries.map((point: any) => ({
-          date: point.date,
-          revenue: point.revenue_net ?? 0,
-          orders: point.orders ?? 0,
-        }));
-        
-        setData({
-          metrics: {
-            total_sales: summary.revenue_net ?? 0,
-            total_orders: summary.orders ?? 0,
-            aov: summary.aov ?? 0,
-            conversion_rate: 0, // Not available in current API
-          },
-          timeseries: chartData,
-          topProducts: [], // Not available in current API
-          currency: json.shop?.currency ?? "AUD",
-          hasData: json.meta?.hasData ?? false,
-        });
-      } catch (err) {
-        if (!controller.signal.aborted) {
-          setError(err instanceof Error ? err.message : "Failed to load data");
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    fetchData();
-    return () => controller.abort();
-  }, [period]);
-
-  const currency = data?.currency ?? "AUD";
-  const metrics = data?.metrics ?? { total_sales: 0, total_orders: 0, aov: 0, conversion_rate: 0 };
 
   return (
-    <div>
+    <div className="space-y-6">
       {/* Header */}
-      <div className="page-header">
-        <div className="page-title-section">
-          <h1>Shopify Performance</h1>
-          <p>Detailed revenue, orders, and product analytics sourced directly from Shopify.</p>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight">
+              {shop.shop_name || shop.myshopify_domain || "Shopify Dashboard"}
+            </h1>
+            <DataFreshnessBadge asOf={null} />
+          </div>
+          <p className="text-muted-foreground mt-1">
+            {shop.myshopify_domain && (
+              <span className="text-sm">{shop.myshopify_domain}</span>
+            )}
+          </p>
         </div>
 
-        <div className="date-filter">
-          {PERIOD_OPTIONS.map((option) => (
-            <button
-              key={option.id}
-              className={`date-btn ${period === option.id ? "date-btn-active" : ""}`}
-              onClick={() => setPeriod(option.id)}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const today = new Date();
+              const yesterday = new Date(today);
+              yesterday.setDate(yesterday.getDate() - 1);
+              handleDateChange(yesterday.toISOString().split("T")[0], yesterday.toISOString().split("T")[0]);
+            }}
+          >
+            Yesterday
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const today = new Date();
+              const last7 = new Date(today);
+              last7.setDate(last7.getDate() - 6);
+              handleDateChange(last7.toISOString().split("T")[0], today.toISOString().split("T")[0]);
+            }}
+          >
+            Last 7 days
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const today = new Date();
+              const last30 = new Date(today);
+              last30.setDate(last30.getDate() - 29);
+              handleDateChange(last30.toISOString().split("T")[0], today.toISOString().split("T")[0]);
+            }}
+          >
+            Last 30 days
+          </Button>
         </div>
       </div>
 
-      {/* Error State */}
-      {error && (
-        <div className="alert alert-error" style={{ marginBottom: "1rem" }}>
-          {error}
-        </div>
-      )}
+      {/* KPI Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Revenue (Net)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(summary.revenue_net, currency)}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Gross: {formatCurrency(summary.revenue_gross, currency)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Orders</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatNumber(summary.orders)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">AOV</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(summary.aov, currency)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Refunds</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(summary.refunds, currency)}</div>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Loading State */}
-      {loading && (
-        <div style={{ display: "flex", justifyContent: "center", padding: "3rem" }}>
-          <div className="spinner" />
-        </div>
-      )}
+      {/* Charts */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue & Orders</CardTitle>
+            <CardDescription>Daily revenue and order count over time</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="date" className="text-xs" />
+                  <YAxis yAxisId="left" className="text-xs" />
+                  <YAxis yAxisId="right" orientation="right" className="text-xs" />
+                  <Tooltip
+                    formatter={(value, name) => {
+                      const numeric = Number(value ?? 0);
+                      if (name === "revenue" || name === "refunds") {
+                        return formatCurrency(numeric, currency);
+                      }
+                      return formatNumber(numeric);
+                    }}
+                    contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                  />
+                  <Legend />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="hsl(142, 71%, 45%)"
+                    strokeWidth={2}
+                    name="Revenue (Net)"
+                    dot={{ r: 4 }}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="orders"
+                    stroke="hsl(217, 91%, 60%)"
+                    strokeWidth={2}
+                    name="Orders"
+                    dot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                No data available for this period
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-      {/* Dashboard Content */}
-      {!loading && (
-        <>
-          {/* KPI Cards */}
-          <div className="kpi-grid">
-            <div className="kpi-card">
-              <div className="kpi-value">{formatCurrency(metrics.total_sales, currency)}</div>
-              <div className="kpi-label">Total Sales</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-value">{formatNumber(metrics.total_orders)}</div>
-              <div className="kpi-label">Total Orders</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-value">{formatCurrency(metrics.aov, currency)}</div>
-              <div className="kpi-label">Average Order Value</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-value">{formatPercent(metrics.conversion_rate)}</div>
-              <div className="kpi-label">Conversion Rate</div>
-            </div>
-          </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Refunds</CardTitle>
+            <CardDescription>Daily refund amount over time</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="date" className="text-xs" />
+                  <YAxis className="text-xs" />
+                  <Tooltip
+                    formatter={(value) => formatCurrency(Number(value ?? 0), currency)}
+                    contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="refunds"
+                    stroke="hsl(0, 84%, 60%)"
+                    strokeWidth={2}
+                    name="Refunds"
+                    dot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                No data available for this period
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
-          {/* Charts */}
-          <div className="charts-grid">
-            <div className="chart-card">
-              <div className="card-header">
-                <h3 className="card-title">Revenue Over Time</h3>
-              </div>
-              <div className="chart-container">
-                <LineChart data={data?.timeseries ?? []} currency={currency} />
-              </div>
-            </div>
-
-            <div className="chart-card">
-              <div className="card-header">
-                <h3 className="card-title">Orders & Sessions</h3>
-                <span className="card-subtitle">Showing trends for the selected date range.</span>
-              </div>
-              <div className="chart-container">
-                <DualLineChart data={data?.timeseries ?? []} />
-              </div>
-              <div className="chart-legend">
-                <div className="legend-item">
-                  <span className="legend-dot" style={{ backgroundColor: "#3b82f6" }} />
-                  <span>Orders</span>
-                </div>
-                <div className="legend-item">
-                  <span className="legend-dot" style={{ backgroundColor: "#10b981" }} />
-                  <span>Sessions</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Tables */}
-          <div className="tables-grid">
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">Top Products by Revenue</h3>
-                <span className="card-subtitle">Based on Shopify order line items.</span>
-              </div>
-              {data?.topProducts && data.topProducts.length > 0 ? (
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Product</th>
-                      <th>Revenue</th>
-                      <th>Orders</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.topProducts.map((product, i) => (
-                      <tr key={i}>
-                        <td>{product.name}</td>
-                        <td>{formatCurrency(product.revenue, currency)}</td>
-                        <td>{formatNumber(product.orders)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-state-icon">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-                      <line x1="3" y1="6" x2="21" y2="6" />
-                      <path d="M16 10a4 4 0 0 1-8 0" />
-                    </svg>
+      {/* Recent Orders */}
+      {initialData.recentOrders.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Orders</CardTitle>
+            <CardDescription>Latest orders from the selected period</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {initialData.recentOrders.slice(0, 10).map((order) => (
+                <div
+                  key={order.fact_order_id}
+                  className="flex items-center justify-between p-3 border rounded-md hover:bg-accent transition-colors"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">
+                        {order.order_number ? `#${order.order_number}` : "Order"}
+                      </span>
+                      {order.order_status && (
+                        <Badge variant="outline" className="text-xs">
+                          {order.order_status}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {new Date(order.order_date).toLocaleDateString()}
+                    </p>
                   </div>
-                  <p className="empty-state-title">No products yet</p>
-                  <p className="empty-state-text">Connect your Shopify store and sync data to see top products.</p>
+                  <div className="text-right">
+                    {order.total_net !== null && (
+                      <div className="font-semibold">
+                        {formatCurrency(order.total_net, order.currency || currency)}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
 
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">Channel Performance</h3>
-                <span className="card-subtitle">Marketing efficiency by platform.</span>
-              </div>
-              <div className="empty-state">
-                <div className="empty-state-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="18" y1="20" x2="18" y2="10" />
-                    <line x1="12" y1="20" x2="12" y2="4" />
-                    <line x1="6" y1="20" x2="6" y2="14" />
-                  </svg>
-                </div>
-                <p className="empty-state-title">Coming soon</p>
-                <p className="empty-state-text">Channel attribution will be available after connecting Meta.</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Empty State */}
-          {!data?.hasData && (
-            <div className="card" style={{ marginTop: "1.5rem", textAlign: "center", padding: "2rem" }}>
-              <h3 style={{ marginBottom: "0.5rem" }}>No Shopify data yet</h3>
-              <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
-                Connect your Shopify store from Settings to start seeing your performance data.
+      {/* Empty State */}
+      {!initialData.meta.hasData && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex flex-col items-center justify-center text-center py-8">
+              <h3 className="text-lg font-semibold mb-2">No data available</h3>
+              <p className="text-muted-foreground mb-4 max-w-md">
+                No orders found for the selected period. Try adjusting the date range or check your Shopify integration.
               </p>
-              <a href="/settings" className="btn btn-primary">
-                Go to Settings
-              </a>
             </div>
-          )}
-        </>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

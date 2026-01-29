@@ -1,54 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-type PeriodPreset = "today" | "yesterday" | "last_7" | "last_30";
-
-interface MetaMetrics {
-  spend: number;
-  impressions: number;
-  clicks: number;
-  purchases: number;
-  purchase_value: number;
-  cpm: number;
-  cpc: number;
-  ctr: number;
-  roas: number;
-}
-
-interface TimeseriesPoint {
-  date: string;
-  spend: number;
-  purchase_value: number;
-  roas: number;
-}
-
-interface CampaignData {
-  name: string;
-  spend: number;
-  purchases: number;
-  roas: number;
-}
-
-interface DashboardData {
-  metrics: MetaMetrics;
-  timeseries: TimeseriesPoint[];
-  campaigns: CampaignData[];
-  currency: string;
-  hasData: boolean;
-}
-
-const PERIOD_OPTIONS: Array<{ id: PeriodPreset; label: string }> = [
-  { id: "today", label: "Today" },
-  { id: "yesterday", label: "Yesterday" },
-  { id: "last_7", label: "Last 7" },
-  { id: "last_30", label: "Last 30" },
-];
+import { useRouter, useSearchParams } from "next/navigation";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import type { MetaDashboardResponse } from "@/types/meta-dashboard";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { DataFreshnessBadge } from "@/components/dashboard/DataFreshnessBadge";
+import { MetricDefinition } from "@/components/dashboard/MetricDefinition";
 
 function formatCurrency(value: number, currency: string): string {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
-    currency,
+    currency: currency || "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
@@ -60,396 +23,239 @@ function formatNumber(value: number): string {
   return value.toLocaleString();
 }
 
-function formatPercent(value: number): string {
-  return `${value.toFixed(2)}%`;
-}
-
 function formatRatio(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "0.00×";
+  if (value >= 100) return `${value.toFixed(0)}×`;
+  if (value >= 10) return `${value.toFixed(1)}×`;
   return `${value.toFixed(2)}×`;
 }
 
-// Spend vs Revenue Chart
-function SpendRevenueChart({ data, currency }: { data: TimeseriesPoint[]; currency: string }) {
-  if (data.length === 0) {
-    return (
-      <div className="chart-placeholder">
-        No data available for this period
-      </div>
-    );
-  }
-
-  const width = 600;
-  const height = 220;
-  const padding = 40;
-
-  const spendValues = data.map((d) => d.spend);
-  const revenueValues = data.map((d) => d.purchase_value);
-  const maxValue = Math.max(...spendValues, ...revenueValues, 1);
-
-  const spendPoints = data.map((d, i) => {
-    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
-    const y = height - padding - (d.spend / maxValue) * (height - padding * 2);
-    return { x, y };
-  });
-
-  const revenuePoints = data.map((d, i) => {
-    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
-    const y = height - padding - (d.purchase_value / maxValue) * (height - padding * 2);
-    return { x, y };
-  });
-
-  const spendPath = spendPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
-  const revenuePath = revenuePoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
-      {/* Grid lines */}
-      {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-        const y = height - padding - ratio * (height - padding * 2);
-        return (
-          <line
-            key={ratio}
-            x1={padding}
-            y1={y}
-            x2={width - padding}
-            y2={y}
-            stroke="#e2e8f0"
-            strokeDasharray="4"
-          />
-        );
-      })}
-
-      {/* Spend line */}
-      <path
-        d={spendPath}
-        fill="none"
-        stroke="#3b82f6"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-
-      {/* Revenue line */}
-      <path
-        d={revenuePath}
-        fill="none"
-        stroke="#10b981"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-
-      {/* Data points */}
-      {spendPoints.map((p, i) => (
-        <circle key={`s-${i}`} cx={p.x} cy={p.y} r="3" fill="#3b82f6" />
-      ))}
-      {revenuePoints.map((p, i) => (
-        <circle key={`r-${i}`} cx={p.x} cy={p.y} r="3" fill="#10b981" />
-      ))}
-    </svg>
-  );
+interface MetaDashboardClientProps {
+  initialData: MetaDashboardResponse;
 }
 
-// ROAS Trend Chart
-function ROASChart({ data }: { data: TimeseriesPoint[] }) {
-  if (data.length === 0) {
-    return (
-      <div className="chart-placeholder">
-        No data available
-      </div>
-    );
-  }
+export default function MetaDashboardClient({ initialData }: MetaDashboardClientProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const adAccount = initialData.adAccount;
+  const summary = initialData.summary;
+  const currency = adAccount.currency || "USD";
 
-  const width = 400;
-  const height = 200;
-  const padding = 40;
+  // Prepare chart data
+  const chartData = initialData.timeseries.map((point) => ({
+    date: new Date(point.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    spend: point.spend,
+    purchaseValue: point.purchase_value,
+    roas: point.roas ?? 0,
+    purchases: point.purchases,
+  }));
 
-  const roasValues = data.map((d) => d.roas);
-  const maxRoas = Math.max(...roasValues, 1);
-
-  const points = data.map((d, i) => {
-    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
-    const y = height - padding - (d.roas / maxRoas) * (height - padding * 2);
-    return { x, y };
-  });
-
-  const path = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
-      {/* Grid */}
-      {[0, 0.5, 1].map((ratio) => {
-        const y = height - padding - ratio * (height - padding * 2);
-        return (
-          <line
-            key={ratio}
-            x1={padding}
-            y1={y}
-            x2={width - padding}
-            y2={y}
-            stroke="#e2e8f0"
-            strokeDasharray="4"
-          />
-        );
-      })}
-
-      {/* ROAS line */}
-      <path
-        d={path}
-        fill="none"
-        stroke="#8b5cf6"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-
-      {/* Points */}
-      {points.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r="3" fill="#8b5cf6" />
-      ))}
-    </svg>
-  );
-}
-
-export default function MetaDashboardClient() {
-  const [period, setPeriod] = useState<PeriodPreset>("yesterday");
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-
-    async function fetchData() {
-      try {
-        const res = await fetch(`/api/dashboard/meta?period=${period}`, {
-          signal: controller.signal,
-        });
-
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          throw new Error(errorData.error || "Failed to load Meta data");
-        }
-
-        const json = await res.json();
-        setData({
-          metrics: {
-            spend: json.metrics?.spend ?? 0,
-            impressions: json.metrics?.impressions ?? 0,
-            clicks: json.metrics?.clicks ?? 0,
-            purchases: json.metrics?.purchases ?? 0,
-            purchase_value: json.metrics?.purchase_value ?? 0,
-            cpm: json.metrics?.cpm ?? 0,
-            cpc: json.metrics?.cpc ?? 0,
-            ctr: json.metrics?.ctr ?? 0,
-            roas: json.metrics?.roas ?? 0,
-          },
-          timeseries: json.timeseries ?? [],
-          campaigns: json.campaigns ?? [],
-          currency: json.currency ?? "AUD",
-          hasData: json.hasData ?? false,
-        });
-      } catch (err) {
-        if (!controller.signal.aborted) {
-          setError(err instanceof Error ? err.message : "Failed to load data");
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    fetchData();
-    return () => controller.abort();
-  }, [period]);
-
-  const currency = data?.currency ?? "AUD";
-  const metrics = data?.metrics ?? {
-    spend: 0,
-    impressions: 0,
-    clicks: 0,
-    purchases: 0,
-    purchase_value: 0,
-    cpm: 0,
-    cpc: 0,
-    ctr: 0,
-    roas: 0,
+  const handleDateChange = (from: string, to: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("from", from);
+    params.set("to", to);
+    router.push(`?${params.toString()}`);
   };
 
   return (
-    <div>
+    <div className="space-y-6">
       {/* Header */}
-      <div className="page-header">
-        <div className="page-title-section">
-          <h1>Meta Ads Performance</h1>
-          <p>Facebook and Instagram advertising metrics and campaign performance.</p>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight">
+              {adAccount.display_name || adAccount.platform_ad_account_id || "Meta Dashboard"}
+            </h1>
+            <DataFreshnessBadge asOf={null} />
+          </div>
+          <p className="text-muted-foreground mt-1">
+            {adAccount.platform_ad_account_id && (
+              <span className="text-sm">{adAccount.platform_ad_account_id}</span>
+            )}
+          </p>
         </div>
 
-        <div className="date-filter">
-          {PERIOD_OPTIONS.map((option) => (
-            <button
-              key={option.id}
-              className={`date-btn ${period === option.id ? "date-btn-active" : ""}`}
-              onClick={() => setPeriod(option.id)}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const today = new Date();
+              const yesterday = new Date(today);
+              yesterday.setDate(yesterday.getDate() - 1);
+              handleDateChange(yesterday.toISOString().split("T")[0], yesterday.toISOString().split("T")[0]);
+            }}
+          >
+            Yesterday
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const today = new Date();
+              const last7 = new Date(today);
+              last7.setDate(last7.getDate() - 6);
+              handleDateChange(last7.toISOString().split("T")[0], today.toISOString().split("T")[0]);
+            }}
+          >
+            Last 7 days
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const today = new Date();
+              const last30 = new Date(today);
+              last30.setDate(last30.getDate() - 29);
+              handleDateChange(last30.toISOString().split("T")[0], today.toISOString().split("T")[0]);
+            }}
+          >
+            Last 30 days
+          </Button>
         </div>
       </div>
 
-      {/* Error State */}
-      {error && (
-        <div className="alert alert-error" style={{ marginBottom: "1rem" }}>
-          {error}
-        </div>
-      )}
+      {/* KPI Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-1">
+              Spend
+              <MetricDefinition metric="meta_spend" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(summary.spend, currency)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-1">
+              ROAS
+              <MetricDefinition metric="roas" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatRatio(summary.roas)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Purchases</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatNumber(summary.purchases)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Purchase Value</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(summary.purchase_value, currency)}</div>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Loading State */}
-      {loading && (
-        <div style={{ display: "flex", justifyContent: "center", padding: "3rem" }}>
-          <div className="spinner" />
-        </div>
-      )}
-
-      {/* Dashboard Content */}
-      {!loading && (
-        <>
-          {/* KPI Cards */}
-          <div className="kpi-grid">
-            <div className="kpi-card">
-              <div className="kpi-value">{formatCurrency(metrics.spend, currency)}</div>
-              <div className="kpi-label">Ad Spend</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-value">{formatNumber(metrics.purchases)}</div>
-              <div className="kpi-label">Purchases</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-value">{formatCurrency(metrics.purchase_value, currency)}</div>
-              <div className="kpi-label">Purchase Value</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-value">{formatRatio(metrics.roas)}</div>
-              <div className="kpi-label">ROAS</div>
-            </div>
-          </div>
-
-          {/* Charts */}
-          <div className="charts-grid">
-            <div className="chart-card">
-              <div className="card-header">
-                <h3 className="card-title">Spend vs Purchase Value</h3>
-              </div>
-              <div className="chart-container">
-                <SpendRevenueChart data={data?.timeseries ?? []} currency={currency} />
-              </div>
-              <div className="chart-legend">
-                <div className="legend-item">
-                  <span className="legend-dot" style={{ backgroundColor: "#3b82f6" }} />
-                  <span>Ad Spend</span>
-                </div>
-                <div className="legend-item">
-                  <span className="legend-dot" style={{ backgroundColor: "#10b981" }} />
-                  <span>Purchase Value</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="chart-card">
-              <div className="card-header">
-                <h3 className="card-title">ROAS Trend</h3>
-                <span className="card-subtitle">Return on Ad Spend over time</span>
-              </div>
-              <div className="chart-container">
-                <ROASChart data={data?.timeseries ?? []} />
-              </div>
-              <div className="chart-legend">
-                <div className="legend-item">
-                  <span className="legend-dot" style={{ backgroundColor: "#8b5cf6" }} />
-                  <span>ROAS</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Additional Metrics */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem", marginTop: "1.5rem" }}>
-            <div className="kpi-card">
-              <div className="kpi-value">{formatNumber(metrics.impressions)}</div>
-              <div className="kpi-label">Impressions</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-value">{formatNumber(metrics.clicks)}</div>
-              <div className="kpi-label">Clicks</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-value">{formatPercent(metrics.ctr)}</div>
-              <div className="kpi-label">CTR</div>
-            </div>
-            <div className="kpi-card">
-              <div className="kpi-value">{formatCurrency(metrics.cpc, currency)}</div>
-              <div className="kpi-label">Cost per Click</div>
-            </div>
-          </div>
-
-          {/* Campaigns Table */}
-          <div className="card" style={{ marginTop: "1.5rem" }}>
-            <div className="card-header">
-              <h3 className="card-title">Campaign Performance</h3>
-              <span className="card-subtitle">Top performing campaigns by spend</span>
-            </div>
-            {data?.campaigns && data.campaigns.length > 0 ? (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Campaign</th>
-                    <th>Spend</th>
-                    <th>Purchases</th>
-                    <th>ROAS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.campaigns.map((campaign, i) => (
-                    <tr key={i}>
-                      <td>{campaign.name}</td>
-                      <td>{formatCurrency(campaign.spend, currency)}</td>
-                      <td>{formatNumber(campaign.purchases)}</td>
-                      <td>{formatRatio(campaign.roas)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {/* Charts */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Spend vs Purchase Value</CardTitle>
+            <CardDescription>Daily ad spend and attributed purchase value</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="date" className="text-xs" />
+                  <YAxis className="text-xs" />
+                  <Tooltip
+                    formatter={(value, name) => {
+                      const numeric = Number(value ?? 0);
+                      if (name === "spend" || name === "purchaseValue") {
+                        return formatCurrency(numeric, currency);
+                      }
+                      return formatNumber(numeric);
+                    }}
+                    contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="spend"
+                    stroke="hsl(217, 91%, 60%)"
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    name="Spend"
+                    dot={{ r: 4 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="purchaseValue"
+                    stroke="hsl(142, 71%, 45%)"
+                    strokeWidth={2}
+                    name="Purchase Value"
+                    dot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
             ) : (
-              <div className="empty-state">
-                <div className="empty-state-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z" />
-                  </svg>
-                </div>
-                <p className="empty-state-title">No campaigns yet</p>
-                <p className="empty-state-text">Connect your Meta ad account and sync data to see campaign performance.</p>
+              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                No data available for this period
               </div>
             )}
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* Empty State */}
-          {!data?.hasData && (
-            <div className="card" style={{ marginTop: "1.5rem", textAlign: "center", padding: "2rem" }}>
-              <h3 style={{ marginBottom: "0.5rem" }}>No Meta data yet</h3>
-              <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
-                Connect your Meta ad account from Settings to start seeing your advertising performance.
+        <Card>
+          <CardHeader>
+            <CardTitle>ROAS Trend</CardTitle>
+            <CardDescription>Return on ad spend over time</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="date" className="text-xs" />
+                  <YAxis className="text-xs" />
+                  <Tooltip
+                    formatter={(value) => formatRatio(Number(value ?? 0))}
+                    contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="roas"
+                    stroke="hsl(38, 92%, 50%)"
+                    strokeWidth={2}
+                    name="ROAS"
+                    dot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
+                No data available for this period
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Empty State */}
+      {!initialData.meta.hasData && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex flex-col items-center justify-center text-center py-8">
+              <h3 className="text-lg font-semibold mb-2">No data available</h3>
+              <p className="text-muted-foreground mb-4 max-w-md">
+                No Meta ad data found for the selected period. Try adjusting the date range or check your Meta integration.
               </p>
-              <a href="/settings" className="btn btn-primary">
-                Go to Settings
-              </a>
             </div>
-          )}
-        </>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

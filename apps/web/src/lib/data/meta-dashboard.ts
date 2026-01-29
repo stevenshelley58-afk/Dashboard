@@ -1,6 +1,3 @@
-import { NextRequest, NextResponse } from "next/server";
-
-import { requireAccountIdFromRequest } from "@/lib/auth";
 import { getDbPool } from "@/lib/db";
 import type {
   MetaAdAccountSummary,
@@ -9,21 +6,8 @@ import type {
   MetaTimeseriesPoint,
 } from "@/types/meta-dashboard";
 
-// Legacy API route - primary data flow uses server components in /dashboard/meta/page.tsx
-// This route is kept for backward compatibility but should not be used for new features
-// Revalidate every 60 seconds to match server component behavior
-export const revalidate = 60;
-
 const DEFAULT_WINDOW_DAYS = 7;
 const MAX_WINDOW_DAYS = 60;
-
-class ApiError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
 
 function startOfDayUtc(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -43,7 +27,7 @@ function parseDateParam(value: string | null): Date | null {
 
 function clampRange(from: Date, to: Date): { from: Date; to: Date } {
   if (from > to) {
-    throw new ApiError(400, "`from` date must be before or equal to `to` date.");
+    throw new Error("`from` date must be before or equal to `to` date.");
   }
 
   const maxLookback = new Date(to);
@@ -56,12 +40,15 @@ function clampRange(from: Date, to: Date): { from: Date; to: Date } {
   return { from, to };
 }
 
-function parseRange(searchParams: URLSearchParams): MetaDashboardResponse["range"] {
+export function parseMetaRange(
+  fromParam: string | null,
+  toParam: string | null
+): MetaDashboardResponse["range"] {
   const today = startOfDayUtc(new Date());
 
-  const resolvedTo = parseDateParam(searchParams.get("to")) ?? today;
+  const resolvedTo = parseDateParam(toParam) ?? today;
   const resolvedFrom =
-    parseDateParam(searchParams.get("from")) ??
+    parseDateParam(fromParam) ??
     (() => {
       const fallback = new Date(resolvedTo);
       fallback.setUTCDate(fallback.getUTCDate() - (DEFAULT_WINDOW_DAYS - 1));
@@ -80,7 +67,7 @@ function toNumber(value: string | number | null | undefined, fallback = 0): numb
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-async function resolveAdAccount(
+export async function resolveMetaAdAccount(
   accountId: string,
   requestedAdAccountId: string | null
 ): Promise<MetaAdAccountSummary> {
@@ -106,7 +93,7 @@ async function resolveAdAccount(
     );
 
     if (specific.rowCount === 0) {
-      throw new ApiError(404, "Meta ad account not found for this account.");
+      throw new Error("Meta ad account not found for this account.");
     }
 
     return specific.rows[0];
@@ -132,13 +119,13 @@ async function resolveAdAccount(
   );
 
   if (fallback.rowCount === 0) {
-    throw new ApiError(404, "No Meta integration found for this account.");
+    throw new Error("No Meta integration found for this account.");
   }
 
   return fallback.rows[0];
 }
 
-async function fetchDailyMetrics(params: {
+export async function fetchMetaDailyMetrics(params: {
   accountId: string;
   adAccountId: string;
   from: string;
@@ -170,7 +157,7 @@ async function fetchDailyMetrics(params: {
   }));
 }
 
-function buildSummary(series: MetaTimeseriesPoint[]): MetaDashboardSummary {
+export function buildMetaSummary(series: MetaTimeseriesPoint[]): MetaDashboardSummary {
   const totals = series.reduce(
     (acc, row) => {
       acc.spend += row.spend;
@@ -191,46 +178,5 @@ function buildSummary(series: MetaTimeseriesPoint[]): MetaDashboardSummary {
   return { ...totals, roas };
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    const accountId = requireAccountIdFromRequest(request);
-    const range = parseRange(request.nextUrl.searchParams);
-    const adAccountIdParam = request.nextUrl.searchParams.get("ad_account_id");
-
-    const adAccount = await resolveAdAccount(accountId, adAccountIdParam);
-
-    const timeseries = await fetchDailyMetrics({
-      accountId,
-      adAccountId: adAccount.ad_account_id,
-      ...range,
-    });
-
-    const summary = buildSummary(timeseries);
-
-    const payload: MetaDashboardResponse = {
-      adAccount,
-      range,
-      summary,
-      timeseries,
-      meta: {
-        hasData: timeseries.length > 0,
-      },
-    };
-
-    return NextResponse.json(payload, {
-      headers: { "Cache-Control": "no-store" },
-    });
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-
-    console.error("Failed to load Meta dashboard data", error);
-    return NextResponse.json(
-      { error: "Unexpected error fetching Meta dashboard data." },
-      { status: 500 }
-    );
-  }
-}
 
 

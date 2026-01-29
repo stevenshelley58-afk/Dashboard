@@ -1,6 +1,3 @@
-import { NextRequest, NextResponse } from "next/server";
-
-import { requireAccountIdFromRequest } from "@/lib/auth";
 import { getDbPool } from "@/lib/db";
 import type {
   ShopifyDashboardResponse,
@@ -10,22 +7,9 @@ import type {
   ShopifyTimeseriesPoint,
 } from "@/types/shopify-dashboard";
 
-// Legacy API route - primary data flow uses server components in /dashboard/shopify/page.tsx
-// This route is kept for backward compatibility but should not be used for new features
-// Revalidate every 60 seconds to match server component behavior
-export const revalidate = 60;
-
 const DEFAULT_WINDOW_DAYS = 7;
 const MAX_WINDOW_DAYS = 60;
 const RECENT_ORDERS_LIMIT = 20;
-
-class ApiError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
 
 function startOfDayUtc(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -45,7 +29,7 @@ function parseDateParam(value: string | null): Date | null {
 
 function clampRange(from: Date, to: Date): { from: Date; to: Date } {
   if (from > to) {
-    throw new ApiError(400, "`from` date must be before or equal to `to` date.");
+    throw new Error("`from` date must be before or equal to `to` date.");
   }
 
   const maxLookback = new Date(to);
@@ -58,12 +42,15 @@ function clampRange(from: Date, to: Date): { from: Date; to: Date } {
   return { from, to };
 }
 
-function parseRange(searchParams: URLSearchParams): ShopifyDashboardResponse["range"] {
+export function parseRange(
+  fromParam: string | null,
+  toParam: string | null
+): ShopifyDashboardResponse["range"] {
   const today = startOfDayUtc(new Date());
 
-  const resolvedTo = parseDateParam(searchParams.get("to")) ?? today;
+  const resolvedTo = parseDateParam(toParam) ?? today;
   const resolvedFrom =
-    parseDateParam(searchParams.get("from")) ??
+    parseDateParam(fromParam) ??
     (() => {
       const fallback = new Date(resolvedTo);
       fallback.setUTCDate(fallback.getUTCDate() - (DEFAULT_WINDOW_DAYS - 1));
@@ -82,7 +69,7 @@ function toNumber(value: string | number | null | undefined, fallback = 0): numb
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-async function resolveShopContext(
+export async function resolveShopContext(
   accountId: string,
   requestedShopId: string | null
 ): Promise<ShopifyShopSummary> {
@@ -104,7 +91,7 @@ async function resolveShopContext(
     );
 
     if (result.rowCount === 0) {
-      throw new ApiError(404, "Shop not found for this account.");
+      throw new Error("Shop not found for this account.");
     }
 
     return result.rows[0];
@@ -126,13 +113,13 @@ async function resolveShopContext(
   );
 
   if (result.rowCount === 0) {
-    throw new ApiError(404, "No Shopify integration found for this account.");
+    throw new Error("No Shopify integration found for this account.");
   }
 
   return result.rows[0];
 }
 
-async function fetchDailyMetrics(params: {
+export async function fetchShopifyDailyMetrics(params: {
   accountId: string;
   shopId: string;
   from: string;
@@ -166,7 +153,7 @@ async function fetchDailyMetrics(params: {
   }));
 }
 
-async function fetchRecentOrders(params: {
+export async function fetchShopifyRecentOrders(params: {
   accountId: string;
   shopId: string;
   from: string;
@@ -201,7 +188,7 @@ async function fetchRecentOrders(params: {
   }));
 }
 
-function buildSummary(series: ShopifyTimeseriesPoint[]): ShopifyDashboardSummary {
+export function buildShopifySummary(series: ShopifyTimeseriesPoint[]): ShopifyDashboardSummary {
   const totals = series.reduce(
     (acc, row) => {
       acc.orders += row.orders;
@@ -222,49 +209,6 @@ function buildSummary(series: ShopifyTimeseriesPoint[]): ShopifyDashboardSummary
 
   return { ...totals, aov };
 }
-
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    const accountId = requireAccountIdFromRequest(request);
-    const range = parseRange(request.nextUrl.searchParams);
-    const shopIdParam = request.nextUrl.searchParams.get("shop_id");
-
-    const shop = await resolveShopContext(accountId, shopIdParam);
-
-    const [timeseries, recentOrders] = await Promise.all([
-      fetchDailyMetrics({ accountId, shopId: shop.shop_id, ...range }),
-      fetchRecentOrders({ accountId, shopId: shop.shop_id, ...range }),
-    ]);
-
-    const summary = buildSummary(timeseries);
-
-    const payload: ShopifyDashboardResponse = {
-      shop,
-      range,
-      summary,
-      timeseries,
-      recentOrders,
-      meta: {
-        hasData: timeseries.length > 0 || recentOrders.length > 0,
-      },
-    };
-
-    return NextResponse.json(payload, {
-      headers: { "Cache-Control": "no-store" },
-    });
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-
-    console.error("Failed to load Shopify dashboard data", error);
-    return NextResponse.json(
-      { error: "Unexpected error fetching Shopify dashboard data." },
-      { status: 500 }
-    );
-  }
-}
-
 
 
 

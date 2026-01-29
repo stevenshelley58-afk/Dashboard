@@ -22,8 +22,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={inter.variable} style={{ fontFamily: "var(--font-inter), sans-serif" }}>
+    <html lang="en" className={inter.variable}>
+      <body className="font-sans antialiased">
         {children}
       </body>
     </html>

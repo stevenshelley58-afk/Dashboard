@@ -5,7 +5,8 @@
   "description": "Agency dashboard monorepo",
   "workspaces": [
     "apps/web",
-    "apps/worker"
+    "apps/worker",
+    "packages/shared"
   ],
   "scripts": {
     "dev:web": "npm run dev --workspace web",

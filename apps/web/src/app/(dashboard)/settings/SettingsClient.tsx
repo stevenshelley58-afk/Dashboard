@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 interface Integration {
   integration_id: string;
@@ -8,10 +11,10 @@ interface Integration {
   status: string;
   created_at: string;
   updated_at: string;
-  shop_name?: string;
-  myshopify_domain?: string;
-  ad_account_name?: string;
-  platform_ad_account_id?: string;
+  shop_name?: string | null;
+  myshopify_domain?: string | null;
+  ad_account_name?: string | null;
+  platform_ad_account_id?: string | null;
 }
 
 interface SyncRun {
@@ -53,6 +56,10 @@ interface SettingsData {
   integrations: IntegrationDetail[];
 }
 
+interface SettingsClientProps {
+  initialData: SettingsData;
+}
+
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "Never";
   const date = new Date(dateStr);
@@ -79,31 +86,31 @@ function formatRelativeTime(dateStr: string | null | undefined): string {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const getClass = () => {
+  const getVariant = () => {
     switch (status.toLowerCase()) {
       case "connected":
       case "completed":
       case "success":
       case "active":
-        return "status-connected";
+        return "success" as const;
       case "error":
       case "failed":
       case "disconnected":
-        return "status-disconnected";
+        return "error" as const;
       case "running":
       case "queued":
-        return "status-pending";
+        return "warning" as const;
       default:
-        return "status-pending";
+        return "warning" as const;
     }
   };
   
   const displayStatus = status === "success" ? "completed" : status;
   
   return (
-    <span className={`status-badge ${getClass()}`}>
+    <Badge variant={getVariant()}>
       {displayStatus}
-    </span>
+    </Badge>
   );
 }
 
@@ -120,11 +127,11 @@ function IntegrationCard({ detail, onSync, syncing }: {
   const lastFailedSync = recentSyncs.find(s => s.status === "failed" || s.status === "error");
   
   return (
-    <div className="card" style={{ marginBottom: "1rem" }}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" }}>
-        <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
-          <div className="connection-icon">
+    <Card className="mb-4">
+      <CardHeader>
+        <div className="flex justify-between items-start">
+          <div className="flex gap-4 items-center">
+            <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center">
             {isShopify ? (
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
@@ -136,84 +143,78 @@ function IntegrationCard({ detail, onSync, syncing }: {
                 <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z" />
               </svg>
             )}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-lg">
+                  {isShopify ? "Shopify" : "Meta Ads"}
+                </CardTitle>
+                <StatusBadge status={integration.status} />
+              </div>
+              <CardDescription className="mt-1">
+                {isShopify 
+                  ? (integration.shop_name || integration.myshopify_domain || "Not connected")
+                  : (integration.ad_account_name || integration.platform_ad_account_id || "Not connected")
+                }
+              </CardDescription>
+            </div>
+          </div>
+          
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onSync(integration.integration_id, isShopify ? "shopify_fresh" : "meta_fresh")}
+              disabled={syncing === integration.integration_id}
+            >
+              {syncing === integration.integration_id ? "Syncing..." : "Sync Now"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? "Hide Details" : "Show Details"}
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+
+        {/* Quick Stats */}
+        <div className={`grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted rounded-lg ${expanded ? "mb-4" : ""}`}>
+          <div>
+            <div className="text-xs text-muted-foreground uppercase">Last Sync</div>
+            <div className="font-semibold mt-1">
+              {formatRelativeTime(lastSuccessfulSync?.completed_at)}
+            </div>
           </div>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <h3 style={{ margin: 0, fontSize: "1.125rem" }}>
-                {isShopify ? "Shopify" : "Meta Ads"}
-              </h3>
-              <StatusBadge status={integration.status} />
-            </div>
-            <p style={{ margin: "0.25rem 0 0", color: "var(--text-muted)", fontSize: "0.875rem" }}>
+            <div className="text-xs text-muted-foreground uppercase">Data Through</div>
+            <div className="font-semibold mt-1">
               {isShopify 
-                ? (integration.shop_name || integration.myshopify_domain || "Not connected")
-                : (integration.ad_account_name || integration.platform_ad_account_id || "Not connected")
+                ? (dataStats.latest_order_date ? formatDate(dataStats.latest_order_date) : "No data")
+                : "N/A"
               }
-            </p>
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground uppercase">
+              {isShopify ? "Orders Synced" : "Days Synced"}
+            </div>
+            <div className="font-semibold mt-1">
+              {isShopify ? dataStats.orders_count.toLocaleString() : "0"}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground uppercase">
+              {isShopify ? "Webhooks Received" : "API Calls"}
+            </div>
+            <div className="font-semibold mt-1">
+              {isShopify ? dataStats.webhooks_count.toLocaleString() : "0"}
+            </div>
           </div>
         </div>
-        
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <button
-            className="btn btn-secondary"
-            onClick={() => onSync(integration.integration_id, isShopify ? "shopify_fresh" : "meta_fresh")}
-            disabled={syncing === integration.integration_id}
-            style={{ fontSize: "0.8125rem" }}
-          >
-            {syncing === integration.integration_id ? "Syncing..." : "Sync Now"}
-          </button>
-          <button
-            className="btn btn-secondary"
-            onClick={() => setExpanded(!expanded)}
-            style={{ fontSize: "0.8125rem" }}
-          >
-            {expanded ? "Hide Details" : "Show Details"}
-          </button>
-        </div>
-      </div>
-
-      {/* Quick Stats */}
-      <div style={{ 
-        display: "grid", 
-        gridTemplateColumns: "repeat(4, 1fr)", 
-        gap: "1rem", 
-        padding: "1rem",
-        background: "var(--background)",
-        borderRadius: "0.5rem",
-        marginBottom: expanded ? "1rem" : 0
-      }}>
-        <div>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Last Sync</div>
-          <div style={{ fontWeight: "600", marginTop: "0.25rem" }}>
-            {formatRelativeTime(lastSuccessfulSync?.completed_at)}
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Data Through</div>
-          <div style={{ fontWeight: "600", marginTop: "0.25rem" }}>
-            {isShopify 
-              ? (dataStats.latest_order_date ? formatDate(dataStats.latest_order_date) : "No data")
-              : "N/A"
-            }
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase" }}>
-            {isShopify ? "Orders Synced" : "Days Synced"}
-          </div>
-          <div style={{ fontWeight: "600", marginTop: "0.25rem" }}>
-            {isShopify ? dataStats.orders_count.toLocaleString() : "0"}
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase" }}>
-            {isShopify ? "Webhooks Received" : "API Calls"}
-          </div>
-          <div style={{ fontWeight: "600", marginTop: "0.25rem" }}>
-            {isShopify ? dataStats.webhooks_count.toLocaleString() : "0"}
-          </div>
-        </div>
-      </div>
 
       {/* Expanded Details */}
       {expanded && (
@@ -282,23 +283,26 @@ function IntegrationCard({ detail, onSync, syncing }: {
           )}
 
           {/* Actions */}
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            <button
-              className="btn btn-secondary"
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
               onClick={() => onSync(integration.integration_id, isShopify ? "shopify_7d_fill" : "meta_7d_fill")}
               disabled={syncing === integration.integration_id}
             >
               Backfill Last 7 Days
-            </button>
+            </Button>
             {isShopify && integration.status === "connected" && (
-              <a href={`/api/shopify/install?shop=${integration.myshopify_domain}`} className="btn btn-secondary">
-                Reinstall Webhooks
-              </a>
+              <Button variant="outline" asChild>
+                <a href={`/api/shopify/install?shop=${integration.myshopify_domain}`}>
+                  Reinstall Webhooks
+                </a>
+              </Button>
             )}
           </div>
         </div>
       )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -306,115 +310,116 @@ function ConnectShopifyCard() {
   const [shop, setShop] = useState("");
   
   return (
-    <div className="card" style={{ marginBottom: "1rem" }}>
-      <div style={{ display: "flex", gap: "1rem", alignItems: "center", marginBottom: "1rem" }}>
-        <div className="connection-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <path d="M16 10a4 4 0 0 1-8 0" />
-          </svg>
+    <Card className="mb-4">
+      <CardHeader>
+        <div className="flex gap-4 items-center">
+          <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <path d="M16 10a4 4 0 0 1-8 0" />
+            </svg>
+          </div>
+          <div>
+            <CardTitle>Connect Shopify Store</CardTitle>
+            <CardDescription>
+              Sync orders, products, and customers from your Shopify store.
+            </CardDescription>
+          </div>
         </div>
-        <div>
-          <h3 style={{ margin: 0 }}>Connect Shopify Store</h3>
-          <p style={{ margin: "0.25rem 0 0", color: "var(--text-muted)", fontSize: "0.875rem" }}>
-            Sync orders, products, and customers from your Shopify store.
-          </p>
+      </CardHeader>
+      <CardContent>
+        <form
+          action="/api/shopify/install"
+          method="GET"
+          className="flex gap-3"
+        >
+          <input
+            type="text"
+            name="shop"
+            value={shop}
+            onChange={(e) => setShop(e.target.value)}
+            placeholder="your-store.myshopify.com"
+            required
+            className="flex-1 px-3 py-2 border border-input bg-background rounded-md text-sm"
+          />
+          <Button type="submit">
+            Connect Store
+          </Button>
+        </form>
+        
+        <div className="mt-4 text-sm text-muted-foreground">
+          <strong>What gets synced:</strong>
+          <ul className="mt-2 ml-5 list-disc">
+            <li>Orders and order line items</li>
+            <li>Customers and customer data</li>
+            <li>Products and inventory</li>
+            <li>Real-time webhooks for new orders</li>
+          </ul>
         </div>
-      </div>
-      
-      <form
-        action="/api/shopify/install"
-        method="GET"
-        style={{ display: "flex", gap: "0.75rem" }}
-      >
-        <input
-          type="text"
-          name="shop"
-          value={shop}
-          onChange={(e) => setShop(e.target.value)}
-          placeholder="your-store.myshopify.com"
-          required
-          className="input"
-          style={{ flex: 1 }}
-        />
-        <button type="submit" className="btn btn-primary">
-          Connect Store
-        </button>
-      </form>
-      
-      <div style={{ marginTop: "1rem", fontSize: "0.8125rem", color: "var(--text-muted)" }}>
-        <strong>What gets synced:</strong>
-        <ul style={{ margin: "0.5rem 0 0 1.25rem", padding: 0 }}>
-          <li>Orders and order line items</li>
-          <li>Customers and customer data</li>
-          <li>Products and inventory</li>
-          <li>Real-time webhooks for new orders</li>
-        </ul>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
 function ConnectMetaCard() {
   return (
-    <div className="card" style={{ marginBottom: "1rem" }}>
-      <div style={{ display: "flex", gap: "1rem", alignItems: "center", marginBottom: "1rem" }}>
-        <div className="connection-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z" />
-          </svg>
-        </div>
-        <div>
-          <h3 style={{ margin: 0 }}>Connect Meta Ads</h3>
-          <p style={{ margin: "0.25rem 0 0", color: "var(--text-muted)", fontSize: "0.875rem" }}>
-            Sync Facebook and Instagram advertising data.
-          </p>
-        </div>
-      </div>
-      
-      <div className="alert alert-info" style={{ marginBottom: "1rem" }}>
-        <strong>Coming Soon:</strong> Meta Ads integration is under development. 
-        Enter your API credentials below to enable when ready.
-      </div>
-      
-      <div style={{ 
-        background: "var(--background)", 
-        borderRadius: "0.5rem", 
-        padding: "1rem",
-        fontSize: "0.875rem"
-      }}>
-        <p style={{ marginBottom: "0.75rem", fontWeight: "500" }}>Required API Credentials:</p>
-        <div style={{ display: "grid", gap: "0.5rem" }}>
-          <div>
-            <label className="label">Meta App ID</label>
-            <input type="text" className="input" placeholder="Your Meta App ID" disabled />
+    <Card className="mb-4">
+      <CardHeader>
+        <div className="flex gap-4 items-center">
+          <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z" />
+            </svg>
           </div>
           <div>
-            <label className="label">Meta App Secret</label>
-            <input type="password" className="input" placeholder="Your Meta App Secret" disabled />
-          </div>
-          <div>
-            <label className="label">Ad Account ID</label>
-            <input type="text" className="input" placeholder="act_123456789" disabled />
+            <CardTitle>Connect Meta Ads</CardTitle>
+            <CardDescription>
+              Sync Facebook and Instagram advertising data.
+            </CardDescription>
           </div>
         </div>
-        <button className="btn btn-primary" disabled style={{ marginTop: "1rem" }}>
-          Connect Meta Ads (Coming Soon)
-        </button>
-      </div>
-    </div>
+      </CardHeader>
+      <CardContent>
+        <div className="p-4 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg mb-4">
+          <strong className="text-sm">Coming Soon:</strong> Meta Ads integration is under development. 
+          Enter your API credentials below to enable when ready.
+        </div>
+        
+        <div className="bg-muted rounded-lg p-4 text-sm">
+          <p className="mb-3 font-medium">Required API Credentials:</p>
+          <div className="grid gap-2">
+            <div>
+              <label className="text-sm font-medium">Meta App ID</label>
+              <input type="text" className="w-full mt-1 px-3 py-2 border border-input bg-background rounded-md text-sm" placeholder="Your Meta App ID" disabled />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Meta App Secret</label>
+              <input type="password" className="w-full mt-1 px-3 py-2 border border-input bg-background rounded-md text-sm" placeholder="Your Meta App Secret" disabled />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Ad Account ID</label>
+              <input type="text" className="w-full mt-1 px-3 py-2 border border-input bg-background rounded-md text-sm" placeholder="act_123456789" disabled />
+            </div>
+          </div>
+          <Button disabled className="mt-4">
+            Connect Meta Ads (Coming Soon)
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
-export default function SettingsClient() {
-  const [data, setData] = useState<SettingsData | null>(null);
-  const [loading, setLoading] = useState(true);
+export default function SettingsClient({ initialData }: SettingsClientProps) {
+  const [data, setData] = useState<SettingsData>(initialData);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
       const res = await fetch("/api/settings/integrations");
       if (!res.ok) {
@@ -432,8 +437,6 @@ export default function SettingsClient() {
   }, []);
 
   useEffect(() => {
-    fetchData();
-    
     // Auto-refresh every 3 seconds if there are running/queued jobs
     const interval = setInterval(() => {
       if (data?.integrations.some(i => 
@@ -480,42 +483,49 @@ export default function SettingsClient() {
   const hasMeta = metaIntegrations.length > 0;
 
   return (
-    <div>
+    <div className="space-y-6">
       {/* Header */}
-      <div className="page-header">
-        <div className="page-title-section">
-          <h1>Settings & Integrations</h1>
-          <p>Manage your connected platforms, API keys, and sync status.</p>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Settings & Integrations</h1>
+          <p className="text-muted-foreground mt-1">
+            Manage your connected platforms, API keys, and sync status.
+          </p>
         </div>
-        <button className="btn btn-secondary" onClick={fetchData} disabled={loading}>
+        <Button variant="outline" onClick={fetchData} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh Status"}
-        </button>
+        </Button>
       </div>
 
       {/* Error Banner */}
       {error && (
-        <div className="alert alert-error" style={{ marginBottom: "1rem" }}>
-          <strong>Error:</strong> {error}
-          <button 
-            onClick={fetchData}
-            style={{ marginLeft: "1rem", textDecoration: "underline", background: "none", border: "none", cursor: "pointer", color: "inherit" }}
-          >
-            Try Again
-          </button>
-        </div>
+        <Card className="mb-4 border-destructive">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <strong className="text-destructive">Error:</strong> {error}
+              </div>
+              <Button variant="outline" size="sm" onClick={fetchData}>
+                Try Again
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Sync Message */}
       {syncMessage && (
-        <div className={`alert ${syncMessage.includes("failed") || syncMessage.includes("Error") ? "alert-error" : "alert-success"}`} style={{ marginBottom: "1rem" }}>
-          {syncMessage}
-        </div>
+        <Card className={`mb-4 ${syncMessage.includes("failed") || syncMessage.includes("Error") ? "border-destructive" : "border-green-500"}`}>
+          <CardContent className="pt-6">
+            {syncMessage}
+          </CardContent>
+        </Card>
       )}
 
       {/* Loading */}
       {loading && (
-        <div style={{ display: "flex", justifyContent: "center", padding: "3rem" }}>
-          <div className="spinner" />
+        <div className="flex justify-center py-12">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
@@ -524,8 +534,8 @@ export default function SettingsClient() {
         <>
           {/* Connected Integrations */}
           {(hasShopify || hasMeta) && (
-            <section style={{ marginBottom: "2rem" }}>
-              <h2 style={{ fontSize: "1.25rem", fontWeight: "600", marginBottom: "1rem" }}>
+            <section className="mb-8">
+              <h2 className="text-2xl font-semibold mb-4">
                 Connected Integrations
               </h2>
               
@@ -551,7 +561,7 @@ export default function SettingsClient() {
 
           {/* Add New Integrations */}
           <section>
-            <h2 style={{ fontSize: "1.25rem", fontWeight: "600", marginBottom: "1rem" }}>
+            <h2 className="text-2xl font-semibold mb-4">
               {hasShopify || hasMeta ? "Add More Integrations" : "Connect Your Platforms"}
             </h2>
             
@@ -564,45 +574,48 @@ export default function SettingsClient() {
           </section>
 
           {/* Account Info */}
-          <section style={{ marginTop: "2rem" }}>
-            <div className="card">
-              <h3 style={{ margin: "0 0 1rem", fontSize: "1rem" }}>Account Information</h3>
-              <div style={{ display: "grid", gap: "0.5rem", fontSize: "0.875rem" }}>
-                <div>
-                  <span style={{ color: "var(--text-muted)" }}>Account ID: </span>
-                  <code style={{ 
-                    background: "var(--background)", 
-                    padding: "0.125rem 0.5rem", 
-                    borderRadius: "0.25rem",
-                    fontSize: "0.8125rem"
-                  }}>
-                    {data?.accountId || "Loading..."}
-                  </code>
+          <section className="mt-8">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Account Information</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-2 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Account ID: </span>
+                    <code className="bg-muted px-2 py-1 rounded text-xs">
+                      {data?.accountId || "Loading..."}
+                    </code>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Total Integrations: </span>
+                    <span>{data?.integrations.length ?? 0}</span>
+                  </div>
                 </div>
-                <div>
-                  <span style={{ color: "var(--text-muted)" }}>Total Integrations: </span>
-                  <span>{data?.integrations.length ?? 0}</span>
-                </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           </section>
 
           {/* Help Section */}
-          <section style={{ marginTop: "2rem" }}>
-            <div className="card">
-              <h3 style={{ margin: "0 0 1rem", fontSize: "1rem" }}>Need Help?</h3>
-              <div style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>
-                <p style={{ marginBottom: "0.75rem" }}>
-                  <strong>Sync not working?</strong> Try clicking "Backfill Last 7 Days" to re-sync historical data.
-                </p>
-                <p style={{ marginBottom: "0.75rem" }}>
-                  <strong>Missing webhooks?</strong> Click "Reinstall Webhooks" to re-register webhook subscriptions with Shopify.
-                </p>
-                <p>
-                  <strong>Data looks wrong?</strong> Check the sync history above for any error messages.
-                </p>
-              </div>
-            </div>
+          <section className="mt-8">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Need Help?</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm text-muted-foreground space-y-3">
+                  <p>
+                    <strong>Sync not working?</strong> Try clicking "Backfill Last 7 Days" to re-sync historical data.
+                  </p>
+                  <p>
+                    <strong>Missing webhooks?</strong> Click "Reinstall Webhooks" to re-register webhook subscriptions with Shopify.
+                  </p>
+                  <p>
+                    <strong>Data looks wrong?</strong> Check the sync history above for any error messages.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           </section>
         </>
       )}

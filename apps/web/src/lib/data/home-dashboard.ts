@@ -1,30 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-
-import { requireAccountIdFromRequest } from "@/lib/auth";
 import { getDbPool } from "@/lib/db";
 import type {
-  HomeDashboardResponse,
   HomeKpis,
   HomePeriodPreset,
   HomePeriodRange,
   HomeTimeseriesPoint,
 } from "@/types/home-dashboard";
 
-// Legacy API route - primary data flow uses server components in /dashboard/home/page.tsx
-// This route is kept for backward compatibility but should not be used for new features
-// Revalidate every 60 seconds to match server component behavior
-export const revalidate = 60;
-
 const PERIOD_PRESETS: HomePeriodPreset[] = ["today", "yesterday", "last_7", "last_30"];
 const PRESET_SET = new Set<HomePeriodPreset>(PERIOD_PRESETS);
-
-class ApiError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
 
 function startOfDayUtc(value = new Date()): Date {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
@@ -32,6 +15,24 @@ function startOfDayUtc(value = new Date()): Date {
 
 function formatDateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
+}
+
+function parseDateOnlyUtc(value: string): Date {
+  // Expect YYYY-MM-DD, interpret as UTC midnight.
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function addDaysUtc(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function diffDaysInclusive(from: string, to: string): number {
+  const start = parseDateOnlyUtc(from);
+  const end = parseDateOnlyUtc(to);
+  const diff = Math.floor((end.getTime() - start.getTime()) / 86_400_000);
+  return diff + 1;
 }
 
 function clampNumber(value: unknown, fallback = 0): number {
@@ -45,14 +46,14 @@ function clampNumber(value: unknown, fallback = 0): number {
   return fallback;
 }
 
-function parsePreset(value: string | null): HomePeriodPreset {
+export function parsePreset(value: string | null): HomePeriodPreset {
   if (value && PRESET_SET.has(value as HomePeriodPreset)) {
     return value as HomePeriodPreset;
   }
   return "last_7";
 }
 
-function computePeriodRange(preset: HomePeriodPreset): HomePeriodRange {
+export function computePeriodRange(preset: HomePeriodPreset): HomePeriodRange {
   const today = startOfDayUtc();
   const rangeEnd = new Date(today);
   const rangeStart = new Date(today);
@@ -82,14 +83,26 @@ function computePeriodRange(preset: HomePeriodPreset): HomePeriodRange {
   };
 }
 
-async function fetchLatestKpis(
+export function computeCompareRange(range: HomePeriodRange): HomePeriodRange {
+  const days = diffDaysInclusive(range.from, range.to);
+  const currentFrom = parseDateOnlyUtc(range.from);
+  const prevTo = addDaysUtc(currentFrom, -1);
+  const prevFrom = addDaysUtc(prevTo, -(days - 1));
+
+  return {
+    preset: range.preset,
+    from: formatDateOnly(prevFrom),
+    to: formatDateOnly(prevTo),
+  };
+}
+
+export async function fetchHomeKpis(
   accountId: string,
   preset: HomePeriodPreset,
   range: HomePeriodRange
 ): Promise<HomeKpis> {
   const pool = getDbPool();
   
-  // Calculate KPIs directly from daily_summary for the period
   const result = await pool.query<{
     revenue_net: number | null;
     meta_spend: number | null;
@@ -106,7 +119,7 @@ async function fetchLatestKpis(
           WHEN SUM(meta_spend) > 0 THEN SUM(revenue_net) / SUM(meta_spend)
           ELSE NULL
         END AS mer,
-        NULL AS roas, -- ROAS would come from Meta data
+        NULL AS roas,
         CASE 
           WHEN SUM(orders) > 0 THEN SUM(revenue_net) / SUM(orders)
           ELSE 0
@@ -143,7 +156,7 @@ async function fetchLatestKpis(
   };
 }
 
-async function fetchDailySummary(params: {
+export async function fetchHomeTimeseries(params: {
   accountId: string;
   from: string;
   to: string;
@@ -196,7 +209,7 @@ function enumerateDateRange(from: string, to: string): string[] {
   return dates;
 }
 
-function normalizeTimeseries(
+export function normalizeTimeseries(
   range: HomePeriodRange,
   rows: Map<string, HomeTimeseriesPoint>
 ): HomeTimeseriesPoint[] {
@@ -218,7 +231,7 @@ function normalizeTimeseries(
   });
 }
 
-async function resolveAccountCurrency(accountId: string): Promise<string> {
+export async function resolveAccountCurrency(accountId: string): Promise<string> {
   const pool = getDbPool();
 
   const shopCurrency = await pool.query<{ currency: string | null }>(
@@ -263,53 +276,4 @@ async function resolveAccountCurrency(accountId: string): Promise<string> {
 
   return "USD";
 }
-
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    const accountId = requireAccountIdFromRequest(request);
-    const preset = parsePreset(request.nextUrl.searchParams.get("period"));
-    const range = computePeriodRange(preset);
-
-    const [kpis, rows, currency] = await Promise.all([
-      fetchLatestKpis(accountId, preset, range),
-      fetchDailySummary({ accountId, from: range.from, to: range.to }),
-      resolveAccountCurrency(accountId),
-    ]);
-
-    const timeseries = normalizeTimeseries(range, rows);
-
-    // hasData if there's any revenue, spend, or orders - show what we have
-    const hasData = 
-      kpis.revenue_net > 0 || 
-      kpis.meta_spend > 0 || 
-      kpis.orders > 0 ||
-      timeseries.some(p => p.revenue_net > 0 || p.meta_spend > 0);
-
-    const payload: HomeDashboardResponse = {
-      period: range,
-      kpis,
-      timeseries,
-      currency,
-      compare: null,
-      meta: {
-        hasData,
-      },
-    };
-
-    return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-
-    console.error("Failed to load home dashboard data", error);
-    return NextResponse.json(
-      { error: "Unexpected error fetching home dashboard data." },
-      { status: 500 }
-    );
-  }
-}
-
-
-
 

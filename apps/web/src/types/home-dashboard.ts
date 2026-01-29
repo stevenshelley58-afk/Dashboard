@@ -23,11 +23,18 @@ export interface HomeTimeseriesPoint {
   mer: number;
 }
 
+export interface HomeDashboardCompare {
+  range: HomePeriodRange;
+  kpis: HomeKpis;
+  timeseries: HomeTimeseriesPoint[];
+}
+
 export interface HomeDashboardResponse {
   period: HomePeriodRange;
   kpis: HomeKpis;
   timeseries: HomeTimeseriesPoint[];
   currency: string;
+  compare: HomeDashboardCompare | null;
   meta: {
     hasData: boolean;
   };
