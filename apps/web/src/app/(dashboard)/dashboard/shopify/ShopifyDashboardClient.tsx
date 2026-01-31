@@ -1,17 +1,132 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import type { ShopifyDashboardResponse } from "@/types/shopify-dashboard";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { DataFreshnessBadge } from "@/components/dashboard/DataFreshnessBadge";
-import { Badge } from "@/components/ui/badge";
+import { useEffect, useState } from "react";
+
+type PeriodPreset = "today" | "yesterday" | "last_7" | "this_week" | "last_30";
+
+interface EnhancedTimeseries {
+  date: string;
+  orders: number;
+  revenue_gross: number;
+  revenue_net: number;
+  refunds: number;
+  aov: number | null;
+  total_discounts: number;
+  total_shipping: number;
+  total_tax: number;
+  new_customers: number;
+  returning_customers: number;
+  returning_customer_rate: number;
+}
+
+interface TopProduct {
+  product_id: string;
+  product_title: string;
+  quantity_sold: number;
+  revenue: number;
+  orders_count: number;
+}
+
+interface SalesByChannel {
+  sales_channel: string;
+  orders: number;
+  revenue_net: number;
+  aov: number;
+}
+
+interface SalesByLocation {
+  country: string;
+  region: string | null;
+  orders: number;
+  revenue_net: number;
+  new_customers: number;
+}
+
+interface HourlySales {
+  hour: number;
+  orders: number;
+  revenue_net: number;
+}
+
+interface CustomerStats {
+  total_customers: number;
+  new_customers: number;
+  returning_customers: number;
+  returning_rate: number;
+  avg_customer_value: number;
+}
+
+interface SessionsData {
+  date: string;
+  sessions: number;
+  visitors: number;
+  page_views: number;
+  add_to_carts: number;
+  reached_checkout: number;
+  conversion_rate: number;
+}
+
+interface TrafficSource {
+  source: string;
+  sessions: number;
+  orders: number;
+  revenue: number;
+  conversion_rate: number;
+}
+
+interface FunnelSummary {
+  sessions: number;
+  visitors: number;
+  add_to_carts: number;
+  reached_checkout: number;
+  orders: number;
+  conversion_rate: number;
+  cart_abandonment_rate: number;
+  checkout_abandonment_rate: number;
+}
+
+interface EnhancedSummary {
+  orders: number;
+  revenue_gross: number;
+  revenue_net: number;
+  refunds: number;
+  aov: number;
+  total_discounts: number;
+  total_shipping: number;
+  total_tax: number;
+  new_customers: number;
+  returning_customers: number;
+  returning_customer_rate: number;
+}
+
+interface DashboardData {
+  summary: EnhancedSummary;
+  timeseries: EnhancedTimeseries[];
+  topProducts: TopProduct[];
+  salesByChannel: SalesByChannel[];
+  salesByLocation: SalesByLocation[];
+  hourlySales: HourlySales[];
+  customerStats: CustomerStats;
+  sessionsTimeseries: SessionsData[];
+  trafficSources: TrafficSource[];
+  funnelSummary: FunnelSummary;
+  currency: string;
+  hasData: boolean;
+  hasSessionsData: boolean;
+}
+
+const PERIOD_OPTIONS: Array<{ id: PeriodPreset; label: string }> = [
+  { id: "today", label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
+  { id: "last_7", label: "Last 7 Days" },
+  { id: "this_week", label: "This Week" },
+  { id: "last_30", label: "Last 30 Days" },
+];
 
 function formatCurrency(value: number, currency: string): string {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
-    currency: currency || "USD",
+    currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
@@ -21,274 +136,874 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
 
-interface ShopifyDashboardClientProps {
-  initialData: ShopifyDashboardResponse;
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
 }
 
-export default function ShopifyDashboardClient({ initialData }: ShopifyDashboardClientProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const shop = initialData.shop;
-  const summary = initialData.summary;
-  const currency = shop.currency || "USD";
+function formatHour(hour: number): string {
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const h = hour % 12 || 12;
+  return `${h}${ampm}`;
+}
 
-  // Prepare chart data
-  const chartData = initialData.timeseries.map((point) => ({
-    date: new Date(point.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-    revenue: point.revenue_net,
-    orders: point.orders,
-    refunds: point.refunds,
-  }));
+// Revenue Over Time Chart
+function RevenueChart({ data, currency }: { data: EnhancedTimeseries[]; currency: string }) {
+  if (data.length === 0) {
+    return (
+      <div className="chart-placeholder">
+        No data available for this period
+      </div>
+    );
+  }
 
-  const handleDateChange = (from: string, to: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("from", from);
-    params.set("to", to);
-    router.push(`?${params.toString()}`);
+  const width = 600;
+  const height = 200;
+  const padding = 40;
+
+  const values = data.map((d) => d.revenue_net);
+  const maxValue = Math.max(...values, 1);
+
+  const points = data.map((d, i) => {
+    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
+    const y = height - padding - (d.revenue_net / maxValue) * (height - padding * 2);
+    return { x, y, value: d.revenue_net, date: d.date };
+  });
+
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
+      {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+        const y = height - padding - ratio * (height - padding * 2);
+        return (
+          <line
+            key={ratio}
+            x1={padding}
+            y1={y}
+            x2={width - padding}
+            y2={y}
+            stroke="#e2e8f0"
+            strokeDasharray="4"
+          />
+        );
+      })}
+      <path
+        d={pathD}
+        fill="none"
+        stroke="#4F46E5"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d={`${pathD} L ${points[points.length - 1]?.x || padding} ${height - padding} L ${padding} ${height - padding} Z`}
+        fill="url(#revenueGradient)"
+        opacity="0.1"
+      />
+      <defs>
+        <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#4F46E5" />
+          <stop offset="100%" stopColor="#4F46E5" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="4" fill="#4F46E5" />
+      ))}
+    </svg>
+  );
+}
+
+// Orders Over Time Chart
+function OrdersChart({ data }: { data: EnhancedTimeseries[] }) {
+  if (data.length === 0) {
+    return <div className="chart-placeholder">No data available</div>;
+  }
+
+  const width = 400;
+  const height = 200;
+  const padding = 40;
+
+  const values = data.map((d) => d.orders);
+  const maxValue = Math.max(...values, 1);
+
+  const points = data.map((d, i) => {
+    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
+    const y = height - padding - (d.orders / maxValue) * (height - padding * 2);
+    return { x, y };
+  });
+
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
+      {[0, 0.5, 1].map((ratio) => {
+        const y = height - padding - ratio * (height - padding * 2);
+        return (
+          <line key={ratio} x1={padding} y1={y} x2={width - padding} y2={y} stroke="#e2e8f0" strokeDasharray="4" />
+        );
+      })}
+      <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" />
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="3" fill="#3b82f6" />
+      ))}
+    </svg>
+  );
+}
+
+// AOV Trend Chart
+function AOVChart({ data, currency }: { data: EnhancedTimeseries[]; currency: string }) {
+  if (data.length === 0) {
+    return <div className="chart-placeholder">No data available</div>;
+  }
+
+  const width = 400;
+  const height = 200;
+  const padding = 40;
+
+  const values = data.map((d) => d.aov ?? 0);
+  const maxValue = Math.max(...values, 1);
+
+  const points = data.map((d, i) => {
+    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
+    const y = height - padding - ((d.aov ?? 0) / maxValue) * (height - padding * 2);
+    return { x, y };
+  });
+
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
+      {[0, 0.5, 1].map((ratio) => {
+        const y = height - padding - ratio * (height - padding * 2);
+        return (
+          <line key={ratio} x1={padding} y1={y} x2={width - padding} y2={y} stroke="#e2e8f0" strokeDasharray="4" />
+        );
+      })}
+      <path d={pathD} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" />
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="3" fill="#10b981" />
+      ))}
+    </svg>
+  );
+}
+
+// Hourly Sales Bar Chart
+function HourlySalesChart({ data, currency }: { data: HourlySales[]; currency: string }) {
+  if (data.length === 0) {
+    return <div className="chart-placeholder">No hourly data available</div>;
+  }
+
+  const width = 600;
+  const height = 200;
+  const padding = 40;
+  const barWidth = (width - padding * 2) / 24 - 2;
+
+  // Fill in missing hours with 0
+  const hourlyData: HourlySales[] = Array.from({ length: 24 }, (_, i) => {
+    const found = data.find(d => d.hour === i);
+    return found || { hour: i, orders: 0, revenue_net: 0 };
+  });
+
+  const maxValue = Math.max(...hourlyData.map(d => d.revenue_net), 1);
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
+      {hourlyData.map((d, i) => {
+        const barHeight = (d.revenue_net / maxValue) * (height - padding * 2);
+        const x = padding + i * ((width - padding * 2) / 24) + 1;
+        const y = height - padding - barHeight;
+        return (
+          <rect
+            key={i}
+            x={x}
+            y={y}
+            width={barWidth}
+            height={barHeight}
+            fill="#6366f1"
+            rx="2"
+          />
+        );
+      })}
+      {/* X axis labels */}
+      {[0, 6, 12, 18, 23].map((hour) => (
+        <text
+          key={hour}
+          x={padding + hour * ((width - padding * 2) / 24) + barWidth / 2}
+          y={height - 10}
+          fontSize="10"
+          textAnchor="middle"
+          fill="#64748b"
+        >
+          {formatHour(hour)}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+// Sessions Over Time Chart
+function SessionsChart({ data }: { data: SessionsData[] }) {
+  if (data.length === 0) {
+    return <div className="chart-placeholder">No sessions data available</div>;
+  }
+
+  const width = 600;
+  const height = 200;
+  const padding = 40;
+
+  const values = data.map((d) => d.sessions);
+  const maxValue = Math.max(...values, 1);
+
+  const points = data.map((d, i) => {
+    const x = padding + (i / (data.length - 1 || 1)) * (width - padding * 2);
+    const y = height - padding - (d.sessions / maxValue) * (height - padding * 2);
+    return { x, y, value: d.sessions };
+  });
+
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "100%" }}>
+      {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+        const y = height - padding - ratio * (height - padding * 2);
+        return (
+          <line
+            key={ratio}
+            x1={padding}
+            y1={y}
+            x2={width - padding}
+            y2={y}
+            stroke="#e2e8f0"
+            strokeDasharray="4"
+          />
+        );
+      })}
+      <path
+        d={pathD}
+        fill="none"
+        stroke="#8b5cf6"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d={`${pathD} L ${points[points.length - 1]?.x || padding} ${height - padding} L ${padding} ${height - padding} Z`}
+        fill="url(#sessionsGradient)"
+        opacity="0.1"
+      />
+      <defs>
+        <linearGradient id="sessionsGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#8b5cf6" />
+          <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="4" fill="#8b5cf6" />
+      ))}
+    </svg>
+  );
+}
+
+// Customer Distribution Pie Chart
+function CustomerPieChart({ newCustomers, returningCustomers }: { newCustomers: number; returningCustomers: number }) {
+  const total = newCustomers + returningCustomers;
+  if (total === 0) {
+    return <div className="chart-placeholder">No customer data</div>;
+  }
+
+  const newPercent = newCustomers / total;
+  const size = 120;
+  const strokeWidth = 20;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
+      <svg width={size} height={size}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="#e2e8f0"
+          strokeWidth={strokeWidth}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="#4F46E5"
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${newPercent * circumference} ${circumference}`}
+          strokeDashoffset={circumference / 4}
+          strokeLinecap="round"
+        />
+      </svg>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+          <span className="legend-dot" style={{ backgroundColor: "#4F46E5" }} />
+          <span>New: {formatNumber(newCustomers)} ({formatPercent(newPercent)})</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span className="legend-dot" style={{ backgroundColor: "#e2e8f0" }} />
+          <span>Returning: {formatNumber(returningCustomers)} ({formatPercent(1 - newPercent)})</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function periodToDateRange(period: PeriodPreset): { from: string; to: string } {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const to = new Date(today);
+  let from = new Date(today);
+
+  switch (period) {
+    case "today":
+      from = new Date(today);
+      break;
+    case "yesterday":
+      from = new Date(today);
+      from.setUTCDate(from.getUTCDate() - 1);
+      to.setUTCDate(to.getUTCDate() - 1);
+      break;
+    case "last_7":
+      from.setUTCDate(from.getUTCDate() - 6);
+      break;
+    case "this_week":
+      const dayOfWeek = today.getUTCDay();
+      const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      from.setUTCDate(from.getUTCDate() - diff);
+      break;
+    case "last_30":
+      from.setUTCDate(from.getUTCDate() - 29);
+      break;
+  }
+
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+  };
+}
+
+export default function ShopifyDashboardClient() {
+  const [period, setPeriod] = useState<PeriodPreset>("last_7");
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+
+    async function fetchData() {
+      try {
+        const { from, to } = periodToDateRange(period);
+        const res = await fetch(`/api/dashboard/shopify?from=${from}&to=${to}`, {
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.error || "Failed to load Shopify data");
+        }
+
+        const json = await res.json();
+
+        setData({
+          summary: json.summary ?? {
+            orders: 0, revenue_gross: 0, revenue_net: 0, refunds: 0, aov: 0,
+            total_discounts: 0, total_shipping: 0, total_tax: 0,
+            new_customers: 0, returning_customers: 0, returning_customer_rate: 0,
+          },
+          timeseries: json.timeseries ?? [],
+          topProducts: json.topProducts ?? [],
+          salesByChannel: json.salesByChannel ?? [],
+          salesByLocation: json.salesByLocation ?? [],
+          hourlySales: json.hourlySales ?? [],
+          customerStats: json.customerStats ?? {
+            total_customers: 0, new_customers: 0, returning_customers: 0,
+            returning_rate: 0, avg_customer_value: 0,
+          },
+          sessionsTimeseries: json.sessionsTimeseries ?? [],
+          trafficSources: json.trafficSources ?? [],
+          funnelSummary: json.funnelSummary ?? {
+            sessions: 0, visitors: 0, add_to_carts: 0, reached_checkout: 0,
+            orders: 0, conversion_rate: 0, cart_abandonment_rate: 0, checkout_abandonment_rate: 0,
+          },
+          currency: json.shop?.currency ?? "AUD",
+          hasData: json.meta?.hasData ?? false,
+          hasSessionsData: json.meta?.hasSessionsData ?? false,
+        });
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          setError(err instanceof Error ? err.message : "Failed to load data");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchData();
+    return () => controller.abort();
+  }, [period]);
+
+  const currency = data?.currency ?? "AUD";
+  const summary = data?.summary ?? {
+    orders: 0, revenue_gross: 0, revenue_net: 0, refunds: 0, aov: 0,
+    total_discounts: 0, total_shipping: 0, total_tax: 0,
+    new_customers: 0, returning_customers: 0, returning_customer_rate: 0,
   };
 
   return (
-    <div className="space-y-6">
+    <div>
       {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight">
-              {shop.shop_name || shop.myshopify_domain || "Shopify Dashboard"}
-            </h1>
-            <DataFreshnessBadge asOf={null} />
+      <div className="page-header">
+        <div className="page-title-section">
+          <h1>Shopify Analytics</h1>
+          <p>Complete analytics matching your Shopify dashboard.</p>
+        </div>
+
+        <div className="date-filter">
+          {PERIOD_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              className={`date-btn ${period === option.id ? "date-btn-active" : ""}`}
+              onClick={() => setPeriod(option.id)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Error State */}
+      {error && (
+        <div className="alert alert-error" style={{ marginBottom: "1rem" }}>
+          {error}
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && (
+        <div style={{ display: "flex", justifyContent: "center", padding: "3rem" }}>
+          <div className="spinner" />
+        </div>
+      )}
+
+      {/* Dashboard Content */}
+      {!loading && (
+        <>
+          {/* Primary KPI Cards */}
+          <div className="kpi-grid">
+            <div className="kpi-card">
+              <div className="kpi-value">{formatCurrency(summary.revenue_net, currency)}</div>
+              <div className="kpi-label">Net Sales</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-value">{formatNumber(summary.orders)}</div>
+              <div className="kpi-label">Total Orders</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-value">{formatCurrency(summary.aov, currency)}</div>
+              <div className="kpi-label">Average Order Value</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-value">{formatPercent(summary.returning_customer_rate)}</div>
+              <div className="kpi-label">Returning Customer Rate</div>
+            </div>
           </div>
-          <p className="text-muted-foreground mt-1">
-            {shop.myshopify_domain && (
-              <span className="text-sm">{shop.myshopify_domain}</span>
-            )}
-          </p>
-        </div>
 
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const today = new Date();
-              const yesterday = new Date(today);
-              yesterday.setDate(yesterday.getDate() - 1);
-              handleDateChange(yesterday.toISOString().split("T")[0], yesterday.toISOString().split("T")[0]);
-            }}
-          >
-            Yesterday
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const today = new Date();
-              const last7 = new Date(today);
-              last7.setDate(last7.getDate() - 6);
-              handleDateChange(last7.toISOString().split("T")[0], today.toISOString().split("T")[0]);
-            }}
-          >
-            Last 7 days
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const today = new Date();
-              const last30 = new Date(today);
-              last30.setDate(last30.getDate() - 29);
-              handleDateChange(last30.toISOString().split("T")[0], today.toISOString().split("T")[0]);
-            }}
-          >
-            Last 30 days
-          </Button>
-        </div>
-      </div>
+          {/* Secondary KPIs - Sales Breakdown */}
+          <div className="kpi-grid" style={{ marginTop: "1rem" }}>
+            <div className="kpi-card kpi-card-secondary">
+              <div className="kpi-value-small">{formatCurrency(summary.revenue_gross, currency)}</div>
+              <div className="kpi-label">Gross Sales</div>
+            </div>
+            <div className="kpi-card kpi-card-secondary">
+              <div className="kpi-value-small">{formatCurrency(summary.total_discounts, currency)}</div>
+              <div className="kpi-label">Discounts</div>
+            </div>
+            <div className="kpi-card kpi-card-secondary">
+              <div className="kpi-value-small">{formatCurrency(summary.refunds, currency)}</div>
+              <div className="kpi-label">Returns</div>
+            </div>
+            <div className="kpi-card kpi-card-secondary">
+              <div className="kpi-value-small">{formatCurrency(summary.total_shipping, currency)}</div>
+              <div className="kpi-label">Shipping</div>
+            </div>
+            <div className="kpi-card kpi-card-secondary">
+              <div className="kpi-value-small">{formatCurrency(summary.total_tax, currency)}</div>
+              <div className="kpi-label">Tax</div>
+            </div>
+          </div>
 
-      {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Revenue (Net)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(summary.revenue_net, currency)}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Gross: {formatCurrency(summary.revenue_gross, currency)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Orders</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(summary.orders)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">AOV</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(summary.aov, currency)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Refunds</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(summary.refunds, currency)}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Revenue & Orders</CardTitle>
-            <CardDescription>Daily revenue and order count over time</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="date" className="text-xs" />
-                  <YAxis yAxisId="left" className="text-xs" />
-                  <YAxis yAxisId="right" orientation="right" className="text-xs" />
-                  <Tooltip
-                    formatter={(value, name) => {
-                      const numeric = Number(value ?? 0);
-                      if (name === "revenue" || name === "refunds") {
-                        return formatCurrency(numeric, currency);
-                      }
-                      return formatNumber(numeric);
-                    }}
-                    contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
-                  />
-                  <Legend />
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="revenue"
-                    stroke="hsl(142, 71%, 45%)"
-                    strokeWidth={2}
-                    name="Revenue (Net)"
-                    dot={{ r: 4 }}
-                  />
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="orders"
-                    stroke="hsl(217, 91%, 60%)"
-                    strokeWidth={2}
-                    name="Orders"
-                    dot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
-                No data available for this period
+          {/* Main Charts Row */}
+          <div className="charts-grid" style={{ marginTop: "1.5rem" }}>
+            <div className="chart-card" style={{ gridColumn: "span 2" }}>
+              <div className="card-header">
+                <h3 className="card-title">Total Sales Over Time</h3>
               </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Refunds</CardTitle>
-            <CardDescription>Daily refund amount over time</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="date" className="text-xs" />
-                  <YAxis className="text-xs" />
-                  <Tooltip
-                    formatter={(value) => formatCurrency(Number(value ?? 0), currency)}
-                    contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="refunds"
-                    stroke="hsl(0, 84%, 60%)"
-                    strokeWidth={2}
-                    name="Refunds"
-                    dot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-[300px] items-center justify-center text-muted-foreground">
-                No data available for this period
+              <div className="chart-container">
+                <RevenueChart data={data?.timeseries ?? []} currency={currency} />
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </div>
+          </div>
 
-      {/* Recent Orders */}
-      {initialData.recentOrders.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Orders</CardTitle>
-            <CardDescription>Latest orders from the selected period</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {initialData.recentOrders.slice(0, 10).map((order) => (
-                <div
-                  key={order.fact_order_id}
-                  className="flex items-center justify-between p-3 border rounded-md hover:bg-accent transition-colors"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">
-                        {order.order_number ? `#${order.order_number}` : "Order"}
-                      </span>
-                      {order.order_status && (
-                        <Badge variant="outline" className="text-xs">
-                          {order.order_status}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {new Date(order.order_date).toLocaleDateString()}
-                    </p>
+          {/* Secondary Charts Row */}
+          <div className="charts-grid">
+            <div className="chart-card">
+              <div className="card-header">
+                <h3 className="card-title">Orders Over Time</h3>
+              </div>
+              <div className="chart-container">
+                <OrdersChart data={data?.timeseries ?? []} />
+              </div>
+            </div>
+
+            <div className="chart-card">
+              <div className="card-header">
+                <h3 className="card-title">Average Order Value Trend</h3>
+              </div>
+              <div className="chart-container">
+                <AOVChart data={data?.timeseries ?? []} currency={currency} />
+              </div>
+            </div>
+          </div>
+
+          {/* Hourly Sales */}
+          <div className="charts-grid">
+            <div className="chart-card" style={{ gridColumn: "span 2" }}>
+              <div className="card-header">
+                <h3 className="card-title">Sales by Hour of Day</h3>
+                <span className="card-subtitle">When your customers are buying</span>
+              </div>
+              <div className="chart-container">
+                <HourlySalesChart data={data?.hourlySales ?? []} currency={currency} />
+              </div>
+            </div>
+          </div>
+
+          {/* Customer Analytics */}
+          <div className="charts-grid">
+            <div className="chart-card">
+              <div className="card-header">
+                <h3 className="card-title">Customer Breakdown</h3>
+                <span className="card-subtitle">New vs Returning customers</span>
+              </div>
+              <div className="chart-container" style={{ padding: "1rem" }}>
+                <CustomerPieChart
+                  newCustomers={summary.new_customers}
+                  returningCustomers={summary.returning_customers}
+                />
+              </div>
+            </div>
+
+            <div className="chart-card">
+              <div className="card-header">
+                <h3 className="card-title">Customer Stats</h3>
+              </div>
+              <div style={{ padding: "1rem" }}>
+                <div className="stat-row">
+                  <span>Total Customers</span>
+                  <strong>{formatNumber(data?.customerStats.total_customers ?? 0)}</strong>
+                </div>
+                <div className="stat-row">
+                  <span>New Customers</span>
+                  <strong>{formatNumber(data?.customerStats.new_customers ?? 0)}</strong>
+                </div>
+                <div className="stat-row">
+                  <span>Returning Customers</span>
+                  <strong>{formatNumber(data?.customerStats.returning_customers ?? 0)}</strong>
+                </div>
+                <div className="stat-row">
+                  <span>Avg. Customer Value</span>
+                  <strong>{formatCurrency(data?.customerStats.avg_customer_value ?? 0, currency)}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tables Row */}
+          <div className="tables-grid">
+            {/* Top Products */}
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title">Top Products by Revenue</h3>
+                <span className="card-subtitle">Best selling products</span>
+              </div>
+              {data?.topProducts && data.topProducts.length > 0 ? (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th style={{ textAlign: "right" }}>Qty</th>
+                      <th style={{ textAlign: "right" }}>Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.topProducts.map((product, i) => (
+                      <tr key={i}>
+                        <td>{product.product_title}</td>
+                        <td style={{ textAlign: "right" }}>{formatNumber(product.quantity_sold)}</td>
+                        <td style={{ textAlign: "right" }}>{formatCurrency(product.revenue, currency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="empty-state">
+                  <p className="empty-state-title">No products yet</p>
+                  <p className="empty-state-text">Sales will appear here once orders are synced.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Sales by Channel */}
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title">Sales by Channel</h3>
+                <span className="card-subtitle">Revenue breakdown by source</span>
+              </div>
+              {data?.salesByChannel && data.salesByChannel.length > 0 ? (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Channel</th>
+                      <th style={{ textAlign: "right" }}>Orders</th>
+                      <th style={{ textAlign: "right" }}>Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.salesByChannel.map((channel, i) => (
+                      <tr key={i}>
+                        <td>{channel.sales_channel}</td>
+                        <td style={{ textAlign: "right" }}>{formatNumber(channel.orders)}</td>
+                        <td style={{ textAlign: "right" }}>{formatCurrency(channel.revenue_net, currency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="empty-state">
+                  <p className="empty-state-title">No channel data</p>
+                  <p className="empty-state-text">Channel attribution will appear after syncing orders.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Location Table */}
+          <div className="tables-grid">
+            <div className="card" style={{ gridColumn: "span 2" }}>
+              <div className="card-header">
+                <h3 className="card-title">Sales by Location</h3>
+                <span className="card-subtitle">Top regions by revenue</span>
+              </div>
+              {data?.salesByLocation && data.salesByLocation.length > 0 ? (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Country</th>
+                      <th>Region</th>
+                      <th style={{ textAlign: "right" }}>Orders</th>
+                      <th style={{ textAlign: "right" }}>New Customers</th>
+                      <th style={{ textAlign: "right" }}>Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.salesByLocation.map((location, i) => (
+                      <tr key={i}>
+                        <td>{location.country}</td>
+                        <td>{location.region || '-'}</td>
+                        <td style={{ textAlign: "right" }}>{formatNumber(location.orders)}</td>
+                        <td style={{ textAlign: "right" }}>{formatNumber(location.new_customers)}</td>
+                        <td style={{ textAlign: "right" }}>{formatCurrency(location.revenue_net, currency)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="empty-state">
+                  <p className="empty-state-title">No location data</p>
+                  <p className="empty-state-text">Location data will appear after syncing orders.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Sessions & Conversion Funnel */}
+          {data?.hasSessionsData ? (
+            <>
+              {/* Funnel KPIs */}
+              <div className="kpi-grid" style={{ marginTop: "1.5rem" }}>
+                <div className="kpi-card">
+                  <div className="kpi-value">{formatNumber(data.funnelSummary.sessions)}</div>
+                  <div className="kpi-label">Total Sessions</div>
+                </div>
+                <div className="kpi-card">
+                  <div className="kpi-value">{formatNumber(data.funnelSummary.add_to_carts)}</div>
+                  <div className="kpi-label">Added to Cart</div>
+                </div>
+                <div className="kpi-card">
+                  <div className="kpi-value">{formatNumber(data.funnelSummary.reached_checkout)}</div>
+                  <div className="kpi-label">Reached Checkout</div>
+                </div>
+                <div className="kpi-card">
+                  <div className="kpi-value">{formatPercent(data.funnelSummary.conversion_rate)}</div>
+                  <div className="kpi-label">Conversion Rate</div>
+                </div>
+              </div>
+
+              {/* Sessions Chart */}
+              <div className="charts-grid" style={{ marginTop: "1rem" }}>
+                <div className="chart-card" style={{ gridColumn: "span 2" }}>
+                  <div className="card-header">
+                    <h3 className="card-title">Sessions Over Time</h3>
                   </div>
-                  <div className="text-right">
-                    {order.total_net !== null && (
-                      <div className="font-semibold">
-                        {formatCurrency(order.total_net, order.currency || currency)}
-                      </div>
-                    )}
+                  <div className="chart-container">
+                    <SessionsChart data={data.sessionsTimeseries} />
                   </div>
                 </div>
-              ))}
+              </div>
+
+              {/* Traffic Sources */}
+              <div className="tables-grid">
+                <div className="card">
+                  <div className="card-header">
+                    <h3 className="card-title">Traffic Sources</h3>
+                    <span className="card-subtitle">Where your visitors come from</span>
+                  </div>
+                  {data.trafficSources.length > 0 ? (
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Source</th>
+                          <th style={{ textAlign: "right" }}>Sessions</th>
+                          <th style={{ textAlign: "right" }}>Orders</th>
+                          <th style={{ textAlign: "right" }}>Conv. Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.trafficSources.map((source, i) => (
+                          <tr key={i}>
+                            <td>{source.source}</td>
+                            <td style={{ textAlign: "right" }}>{formatNumber(source.sessions)}</td>
+                            <td style={{ textAlign: "right" }}>{formatNumber(source.orders)}</td>
+                            <td style={{ textAlign: "right" }}>{formatPercent(source.conversion_rate)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="empty-state">
+                      <p className="empty-state-title">No traffic source data</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Funnel Stats */}
+                <div className="card">
+                  <div className="card-header">
+                    <h3 className="card-title">Conversion Funnel</h3>
+                    <span className="card-subtitle">Shopping behavior breakdown</span>
+                  </div>
+                  <div style={{ padding: "1rem" }}>
+                    <div className="stat-row">
+                      <span>Sessions</span>
+                      <strong>{formatNumber(data.funnelSummary.sessions)}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Added to Cart</span>
+                      <strong>{formatNumber(data.funnelSummary.add_to_carts)}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Reached Checkout</span>
+                      <strong>{formatNumber(data.funnelSummary.reached_checkout)}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Completed Orders</span>
+                      <strong>{formatNumber(data.funnelSummary.orders)}</strong>
+                    </div>
+                    <div className="stat-row" style={{ marginTop: "0.5rem", borderTop: "2px solid var(--border-color)", paddingTop: "0.75rem" }}>
+                      <span>Cart Abandonment</span>
+                      <strong>{formatPercent(data.funnelSummary.cart_abandonment_rate)}</strong>
+                    </div>
+                    <div className="stat-row">
+                      <span>Checkout Abandonment</span>
+                      <strong>{formatPercent(data.funnelSummary.checkout_abandonment_rate)}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="card" style={{ marginTop: "1.5rem", textAlign: "center", padding: "2rem", background: "var(--bg-muted)" }}>
+              <h3 style={{ marginBottom: "0.5rem" }}>Sessions & Conversion Rate</h3>
+              <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
+                Session data requires your Shopify app to have the <code>read_reports</code> scope.
+                <br />
+                Run a sessions sync job to populate this data.
+              </p>
+              <span className="badge badge-secondary">No Sessions Data</span>
             </div>
-          </CardContent>
-        </Card>
+          )}
+
+          {/* Empty State */}
+          {!data?.hasData && (
+            <div className="card" style={{ marginTop: "1.5rem", textAlign: "center", padding: "2rem" }}>
+              <h3 style={{ marginBottom: "0.5rem" }}>No Shopify data yet</h3>
+              <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
+                Connect your Shopify store from Settings to start seeing your performance data.
+              </p>
+              <a href="/settings" className="btn btn-primary">
+                Go to Settings
+              </a>
+            </div>
+          )}
+        </>
       )}
 
-      {/* Empty State */}
-      {!initialData.meta.hasData && (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col items-center justify-center text-center py-8">
-              <h3 className="text-lg font-semibold mb-2">No data available</h3>
-              <p className="text-muted-foreground mb-4 max-w-md">
-                No orders found for the selected period. Try adjusting the date range or check your Shopify integration.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <style jsx>{`
+        .kpi-card-secondary {
+          background: var(--bg-secondary);
+        }
+        .kpi-value-small {
+          font-size: 1.25rem;
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+        .stat-row {
+          display: flex;
+          justify-content: space-between;
+          padding: 0.75rem 0;
+          border-bottom: 1px solid var(--border-color);
+        }
+        .stat-row:last-child {
+          border-bottom: none;
+        }
+        .badge {
+          display: inline-block;
+          padding: 0.25rem 0.75rem;
+          border-radius: 9999px;
+          font-size: 0.75rem;
+          font-weight: 500;
+        }
+        .badge-info {
+          background: #dbeafe;
+          color: #1e40af;
+        }
+        .badge-secondary {
+          background: #f1f5f9;
+          color: #64748b;
+        }
+      `}</style>
     </div>
   );
 }

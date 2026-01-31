@@ -201,16 +201,452 @@ async function fetchRecentOrders(params: {
   }));
 }
 
-function buildSummary(series: ShopifyTimeseriesPoint[]): ShopifyDashboardSummary {
+interface TopProduct {
+  product_id: string;
+  product_title: string;
+  quantity_sold: number;
+  revenue: number;
+  orders_count: number;
+}
+
+interface SalesByChannel {
+  sales_channel: string;
+  orders: number;
+  revenue_net: number;
+  aov: number;
+}
+
+interface SalesByLocation {
+  country: string;
+  region: string | null;
+  orders: number;
+  revenue_net: number;
+  new_customers: number;
+}
+
+interface HourlySales {
+  hour: number;
+  orders: number;
+  revenue_net: number;
+}
+
+interface EnhancedTimeseries {
+  date: string;
+  orders: number;
+  revenue_gross: number;
+  revenue_net: number;
+  refunds: number;
+  aov: number | null;
+  total_discounts: number;
+  total_shipping: number;
+  total_tax: number;
+  new_customers: number;
+  returning_customers: number;
+  returning_customer_rate: number;
+}
+
+async function fetchTopProducts(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+  limit?: number;
+}): Promise<TopProduct[]> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        shopify_product_id AS product_id,
+        product_title,
+        SUM(quantity_sold) AS quantity_sold,
+        SUM(revenue) AS revenue,
+        SUM(orders_count) AS orders_count
+      FROM daily_product_metrics
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+      GROUP BY shopify_product_id, product_title
+      ORDER BY SUM(revenue) DESC
+      LIMIT $5
+    `,
+    [params.accountId, params.shopId, params.from, params.to, params.limit ?? 10]
+  );
+
+  return result.rows.map((row) => ({
+    product_id: row.product_id,
+    product_title: row.product_title,
+    quantity_sold: toNumber(row.quantity_sold),
+    revenue: toNumber(row.revenue),
+    orders_count: toNumber(row.orders_count),
+  }));
+}
+
+async function fetchEnhancedDailyMetrics(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+}): Promise<EnhancedTimeseries[]> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT date::date AS date,
+             orders,
+             revenue_gross,
+             revenue_net,
+             refunds,
+             aov,
+             COALESCE(total_discounts, 0) AS total_discounts,
+             COALESCE(total_shipping, 0) AS total_shipping,
+             COALESCE(total_tax, 0) AS total_tax,
+             COALESCE(new_customers, 0) AS new_customers,
+             COALESCE(returning_customers, 0) AS returning_customers,
+             COALESCE(returning_customer_rate, 0) AS returning_customer_rate
+      FROM daily_shopify_metrics
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+      ORDER BY date ASC
+    `,
+    [params.accountId, params.shopId, params.from, params.to]
+  );
+
+  return result.rows.map((row) => ({
+    date: row.date,
+    orders: toNumber(row.orders),
+    revenue_gross: toNumber(row.revenue_gross),
+    revenue_net: toNumber(row.revenue_net),
+    refunds: toNumber(row.refunds),
+    aov: row.aov === null ? null : toNumber(row.aov),
+    total_discounts: toNumber(row.total_discounts),
+    total_shipping: toNumber(row.total_shipping),
+    total_tax: toNumber(row.total_tax),
+    new_customers: toNumber(row.new_customers),
+    returning_customers: toNumber(row.returning_customers),
+    returning_customer_rate: toNumber(row.returning_customer_rate),
+  }));
+}
+
+async function fetchSalesByChannel(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+}): Promise<SalesByChannel[]> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        sales_channel,
+        SUM(orders) AS orders,
+        SUM(revenue_net) AS revenue_net,
+        CASE WHEN SUM(orders) > 0 THEN SUM(revenue_net) / SUM(orders) ELSE 0 END AS aov
+      FROM daily_sales_by_channel
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+      GROUP BY sales_channel
+      ORDER BY SUM(revenue_net) DESC
+    `,
+    [params.accountId, params.shopId, params.from, params.to]
+  );
+
+  return result.rows.map((row) => ({
+    sales_channel: row.sales_channel,
+    orders: toNumber(row.orders),
+    revenue_net: toNumber(row.revenue_net),
+    aov: toNumber(row.aov),
+  }));
+}
+
+async function fetchSalesByLocation(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+  limit?: number;
+}): Promise<SalesByLocation[]> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        country,
+        region,
+        SUM(orders) AS orders,
+        SUM(revenue_net) AS revenue_net,
+        SUM(new_customers) AS new_customers
+      FROM daily_sales_by_location
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+      GROUP BY country, region
+      ORDER BY SUM(revenue_net) DESC
+      LIMIT $5
+    `,
+    [params.accountId, params.shopId, params.from, params.to, params.limit ?? 10]
+  );
+
+  return result.rows.map((row) => ({
+    country: row.country,
+    region: row.region,
+    orders: toNumber(row.orders),
+    revenue_net: toNumber(row.revenue_net),
+    new_customers: toNumber(row.new_customers),
+  }));
+}
+
+async function fetchHourlySales(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+}): Promise<HourlySales[]> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        hour,
+        SUM(orders) AS orders,
+        SUM(revenue_net) AS revenue_net
+      FROM hourly_sales
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+      GROUP BY hour
+      ORDER BY hour ASC
+    `,
+    [params.accountId, params.shopId, params.from, params.to]
+  );
+
+  return result.rows.map((row) => ({
+    hour: toNumber(row.hour),
+    orders: toNumber(row.orders),
+    revenue_net: toNumber(row.revenue_net),
+  }));
+}
+
+async function fetchCustomerStats(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+}): Promise<{
+  total_customers: number;
+  new_customers: number;
+  returning_customers: number;
+  returning_rate: number;
+  avg_customer_value: number;
+}> {
+  const pool = getDbPool();
+
+  // Calculate from enhanced daily metrics
+  const result = await pool.query(
+    `
+      SELECT
+        SUM(new_customers) + SUM(returning_customers) AS total_customers,
+        SUM(new_customers) AS new_customers,
+        SUM(returning_customers) AS returning_customers,
+        CASE
+          WHEN SUM(new_customers) + SUM(returning_customers) > 0 THEN
+            SUM(returning_customers)::numeric / (SUM(new_customers) + SUM(returning_customers))
+          ELSE 0
+        END AS returning_rate,
+        CASE
+          WHEN SUM(new_customers) + SUM(returning_customers) > 0 THEN
+            SUM(revenue_net) / (SUM(new_customers) + SUM(returning_customers))
+          ELSE 0
+        END AS avg_customer_value
+      FROM daily_shopify_metrics
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+    `,
+    [params.accountId, params.shopId, params.from, params.to]
+  );
+
+  const row = result.rows[0] || {};
+  return {
+    total_customers: toNumber(row.total_customers),
+    new_customers: toNumber(row.new_customers),
+    returning_customers: toNumber(row.returning_customers),
+    returning_rate: toNumber(row.returning_rate),
+    avg_customer_value: toNumber(row.avg_customer_value),
+  };
+}
+
+interface SessionsData {
+  date: string;
+  sessions: number;
+  visitors: number;
+  page_views: number;
+  add_to_carts: number;
+  reached_checkout: number;
+  conversion_rate: number;
+}
+
+interface TrafficSource {
+  source: string;
+  sessions: number;
+  orders: number;
+  revenue: number;
+  conversion_rate: number;
+}
+
+interface FunnelSummary {
+  sessions: number;
+  visitors: number;
+  add_to_carts: number;
+  reached_checkout: number;
+  orders: number;
+  conversion_rate: number;
+  cart_abandonment_rate: number;
+  checkout_abandonment_rate: number;
+}
+
+interface EnhancedSummary extends ShopifyDashboardSummary {
+  total_discounts: number;
+  total_shipping: number;
+  total_tax: number;
+  new_customers: number;
+  returning_customers: number;
+  returning_customer_rate: number;
+}
+
+async function fetchSessionsTimeseries(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+}): Promise<SessionsData[]> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        date::date AS date,
+        sessions,
+        COALESCE(product_views, 0) AS page_views,
+        COALESCE(add_to_carts, 0) AS add_to_carts,
+        COALESCE(reached_checkout, 0) AS reached_checkout,
+        COALESCE(overall_conversion_rate, 0) AS conversion_rate
+      FROM daily_funnel_metrics
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+      ORDER BY date ASC
+    `,
+    [params.accountId, params.shopId, params.from, params.to]
+  );
+
+  return result.rows.map((row) => ({
+    date: row.date,
+    sessions: toNumber(row.sessions),
+    visitors: toNumber(row.sessions), // Approximate visitors = sessions
+    page_views: toNumber(row.page_views),
+    add_to_carts: toNumber(row.add_to_carts),
+    reached_checkout: toNumber(row.reached_checkout),
+    conversion_rate: toNumber(row.conversion_rate),
+  }));
+}
+
+async function fetchTrafficSources(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+  limit?: number;
+}): Promise<TrafficSource[]> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        source,
+        SUM(sessions) AS sessions,
+        SUM(orders) AS orders,
+        SUM(revenue) AS revenue,
+        CASE WHEN SUM(sessions) > 0 THEN SUM(orders)::numeric / SUM(sessions) ELSE 0 END AS conversion_rate
+      FROM daily_traffic_sources
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+      GROUP BY source
+      ORDER BY SUM(sessions) DESC
+      LIMIT $5
+    `,
+    [params.accountId, params.shopId, params.from, params.to, params.limit ?? 10]
+  );
+
+  return result.rows.map((row) => ({
+    source: row.source,
+    sessions: toNumber(row.sessions),
+    orders: toNumber(row.orders),
+    revenue: toNumber(row.revenue),
+    conversion_rate: toNumber(row.conversion_rate),
+  }));
+}
+
+async function fetchFunnelSummary(params: {
+  accountId: string;
+  shopId: string;
+  from: string;
+  to: string;
+}): Promise<FunnelSummary> {
+  const pool = getDbPool();
+  const result = await pool.query(
+    `
+      SELECT
+        SUM(sessions) AS sessions,
+        SUM(add_to_carts) AS add_to_carts,
+        SUM(reached_checkout) AS reached_checkout,
+        SUM(orders_placed) AS orders,
+        CASE WHEN SUM(sessions) > 0 THEN SUM(orders_placed)::numeric / SUM(sessions) ELSE 0 END AS conversion_rate,
+        CASE WHEN SUM(add_to_carts) > 0 THEN 1 - (SUM(reached_checkout)::numeric / SUM(add_to_carts)) ELSE 0 END AS cart_abandonment_rate,
+        CASE WHEN SUM(reached_checkout) > 0 THEN 1 - (SUM(orders_placed)::numeric / SUM(reached_checkout)) ELSE 0 END AS checkout_abandonment_rate
+      FROM daily_funnel_metrics
+      WHERE account_id = $1
+        AND shop_id = $2
+        AND date BETWEEN $3::date AND $4::date
+    `,
+    [params.accountId, params.shopId, params.from, params.to]
+  );
+
+  const row = result.rows[0] || {};
+  return {
+    sessions: toNumber(row.sessions),
+    visitors: toNumber(row.sessions), // Approximate
+    add_to_carts: toNumber(row.add_to_carts),
+    reached_checkout: toNumber(row.reached_checkout),
+    orders: toNumber(row.orders),
+    conversion_rate: toNumber(row.conversion_rate),
+    cart_abandonment_rate: toNumber(row.cart_abandonment_rate),
+    checkout_abandonment_rate: toNumber(row.checkout_abandonment_rate),
+  };
+}
+
+function buildEnhancedSummary(series: EnhancedTimeseries[]): EnhancedSummary {
   const totals = series.reduce(
     (acc, row) => {
       acc.orders += row.orders;
       acc.revenue_gross += row.revenue_gross;
       acc.revenue_net += row.revenue_net;
       acc.refunds += row.refunds;
+      acc.total_discounts += row.total_discounts;
+      acc.total_shipping += row.total_shipping;
+      acc.total_tax += row.total_tax;
+      acc.new_customers += row.new_customers;
+      acc.returning_customers += row.returning_customers;
       return acc;
     },
-    { orders: 0, revenue_gross: 0, revenue_net: 0, refunds: 0 }
+    {
+      orders: 0,
+      revenue_gross: 0,
+      revenue_net: 0,
+      refunds: 0,
+      total_discounts: 0,
+      total_shipping: 0,
+      total_tax: 0,
+      new_customers: 0,
+      returning_customers: 0,
+    }
   );
 
   const aov =
@@ -220,7 +656,12 @@ function buildSummary(series: ShopifyTimeseriesPoint[]): ShopifyDashboardSummary
         ? series[series.length - 1].aov ?? 0
         : 0;
 
-  return { ...totals, aov };
+  const returning_customer_rate =
+    totals.orders > 0
+      ? totals.returning_customers / totals.orders
+      : 0;
+
+  return { ...totals, aov, returning_customer_rate };
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -230,22 +671,51 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const shopIdParam = request.nextUrl.searchParams.get("shop_id");
 
     const shop = await resolveShopContext(accountId, shopIdParam);
+    const queryParams = { accountId, shopId: shop.shop_id, ...range };
 
-    const [timeseries, recentOrders] = await Promise.all([
-      fetchDailyMetrics({ accountId, shopId: shop.shop_id, ...range }),
-      fetchRecentOrders({ accountId, shopId: shop.shop_id, ...range }),
+    const [
+      timeseries,
+      recentOrders,
+      topProducts,
+      salesByChannel,
+      salesByLocation,
+      hourlySales,
+      customerStats,
+      sessionsTimeseries,
+      trafficSources,
+      funnelSummary,
+    ] = await Promise.all([
+      fetchEnhancedDailyMetrics(queryParams),
+      fetchRecentOrders(queryParams),
+      fetchTopProducts({ ...queryParams, limit: 10 }),
+      fetchSalesByChannel(queryParams),
+      fetchSalesByLocation({ ...queryParams, limit: 10 }),
+      fetchHourlySales(queryParams),
+      fetchCustomerStats(queryParams),
+      fetchSessionsTimeseries(queryParams),
+      fetchTrafficSources({ ...queryParams, limit: 10 }),
+      fetchFunnelSummary(queryParams),
     ]);
 
-    const summary = buildSummary(timeseries);
+    const summary = buildEnhancedSummary(timeseries);
 
-    const payload: ShopifyDashboardResponse = {
+    const payload = {
       shop,
       range,
       summary,
       timeseries,
       recentOrders,
+      topProducts,
+      salesByChannel,
+      salesByLocation,
+      hourlySales,
+      customerStats,
+      sessionsTimeseries,
+      trafficSources,
+      funnelSummary,
       meta: {
         hasData: timeseries.length > 0 || recentOrders.length > 0,
+        hasSessionsData: sessionsTimeseries.length > 0,
       },
     };
 
